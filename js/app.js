@@ -1017,6 +1017,11 @@
   const kurzOf = (Z) => Z.kurz || Z.name.split(/[,(]/)[0].trim();
   const roundG = (g) => (g >= 30 ? Math.round(g / 5) * 5 : Math.max(1, Math.round(g)));
   const TOPPING = ["roestzwiebeln", "sesam", "olivenoel"];
+  const stepsOf = (u) => (Array.isArray(u) ? u : String(u || "").split(/\n+/)).map((x) => String(x).trim()).filter(Boolean);
+  const fmtStep = (txt, wasserTotal, portions) => txt
+    .replace(/\{wasser\}/g, `${wasserTotal} ml`)
+    .replace(/\{ml:(\d+)\}/g, (_, n) => `${n * portions} ml`);
+  const stepsHtml = (u, wasserTotal, portions) => `<ol class="steps">${stepsOf(u).map((x) => `<li>${esc(fmtStep(x, wasserTotal, portions))}</li>`).join("")}</ol>`;
 
   function computeWork(w) {
     const r = w.base ? rez(w.base) : null;
@@ -1041,7 +1046,8 @@
     const kocher = r ? (r.kocher || wasser > 0) : wasser > 0;
     const sticky = rows.filter((x) => zut(x.z).klebt).map((x) => kurzOf(zut(x.z)));
     const carb = rows.map((x) => zut(x.z)).find((Z) => Z.kat === "carbs");
-    const replaceNames = (txt) => swaps.reduce((s, sw) => s.split(kurzOf(sw.from)).join(kurzOf(sw.to)), txt || "");
+    const replaceOne = (txt) => swaps.reduce((s, sw) => s.split(kurzOf(sw.from)).join(kurzOf(sw.to)), txt || "");
+    const replaceNames = (txt) => (Array.isArray(txt) ? txt.map(replaceOne) : replaceOne(txt));
 
     // automatische Zubereitung aus den Bausteinen (Freestyle oder wenn die Carb-Basis getauscht wurde)
     const generate = () => {
@@ -1058,14 +1064,14 @@
       ].filter(Boolean).join(" ") : "";
       const steps = [];
       if (wasser > 0) {
-        steps.push(`${wasser} ml Wasser in der Tasse aufkochen.`);
+        steps.push("{wasser} Wasser in der Tasse aufkochen.");
         if (carb && carb.zubereitung) steps.push(`Beutel A dazugeben – ${kurzOf(carb)}: ${carb.zubereitung}.`);
         else steps.push("Beutel A einrühren und abgedeckt 5 min ziehen lassen.");
       } else if (rows.length) steps.push("Kein Kocher nötig – alles zusammen genießen.");
       if (bagB.length) steps.push(`Tasse vom Herd nehmen. Beutel B (${list(bagB)}) mit einem Schluck warmem Wasser im Beutel anrühren und unterheben – so brennt nichts an.`);
       fresh.forEach((Z) => steps.push(`${kurzOf(Z)}: ${Z.zubereitung || "frisch dazugeben"}.`));
       if (tops.length) steps.push(`Zum Schluss ${list(tops)} dazu.`);
-      return { zh, uw: steps.join(" ") };
+      return { zh, uw: steps };
     };
     const origCarb = r ? r.zutaten.map((x) => zut(x.z)).find((Z) => Z && Z.kat === "carbs") : null;
     const carbChanged = !!r && (origCarb?.id || null) !== (carb?.id || null);
@@ -1075,7 +1081,7 @@
       name = replaceNames(r.name);
       basis = carb ? kurzOf(carb) : r.basis;
       if (carbChanged && r.kocher) { const g = generate(); zuhause = g.zh; unterwegs = g.uw; auto = true; }
-      else { zuhause = replaceNames(r.zuhause); unterwegs = replaceNames(r.unterwegs); }
+      else { zuhause = replaceNames(r.zuhause); unterwegs = replaceNames(stepsOf(r.unterwegs)); }
     } else {
       name = w.name || "Freestyle-Gericht";
       basis = carb ? kurzOf(carb) : "Freestyle";
@@ -1148,10 +1154,10 @@
               </div>
               <div class="recipe-detail">
                 ${hints.length ? `<div class="wb-hint">${hints.map((h) => `<p>${h}</p>`).join("")}</div>` : ""}
-                ${c.sticky.length && c.kocher ? `<div class="wb-hint mug"><p><b>Eine-Tasse-Tipp:</b> ${esc(c.sticky.join(", "))} kleben leicht an. Backpapier in die Tasse legen oder erst vom Herd genommen unterrühren.</p></div>` : ""}
+                ${c.sticky.length && c.kocher ? `<div class="wb-hint mug"><p><b>Eine-Tasse-Tipp:</b> ${esc(c.sticky.join(", "))} ${c.sticky.length === 1 ? "klebt" : "kleben"} leicht an. Backpapier in die Tasse legen oder erst vom Herd genommen unterrühren.</p></div>` : ""}
                 ${c.zuhause ? `<h4>Zu Hause vorbereiten</h4><p>${esc(c.zuhause)}</p>` : ""}
-                ${c.unterwegs ? `<h4>Unterwegs${c.auto ? ' <span class="badge warn" style="text-transform:none;letter-spacing:0">automatisch angepasst</span>' : ""}</h4><p>${esc(c.unterwegs)}</p>` : ""}
-                ${c.auto && c.r.unterwegs ? `<details class="small muted"><summary>Original-Zubereitung (mit ${esc(kurzOf(origCarbOf(c.r)))})</summary><p>${esc(c.r.unterwegs)}</p></details>` : ""}
+                ${c.unterwegs.length ? `<h4>Unterwegs${P > 1 ? ` <span class="muted" style="text-transform:none;letter-spacing:0;font-weight:400">· für ${P} Portionen</span>` : ""}${c.auto ? ' <span class="badge warn" style="text-transform:none;letter-spacing:0">automatisch angepasst</span>' : ""}</h4>${stepsHtml(c.unterwegs, c.wasser * P, P)}` : ""}
+                ${c.auto && c.r.unterwegs ? `<details class="small muted"><summary>Original-Zubereitung (mit ${esc(kurzOf(origCarbOf(c.r)))})</summary>${stepsHtml(c.r.unterwegs, c.r.wasser * P, P)}</details>` : ""}
                 ${c.removed.length ? `<p class="small muted">Entfernt: ${c.removed.map((Z) => esc(kurzOf(Z))).join(", ")} – im Text oben ggf. ignorieren.</p>` : ""}
               </div>
             </div>`;
@@ -1192,7 +1198,7 @@
               const nr = {
                 id: slug(name) + "-" + uid().slice(0, 3), name, mahlzeit: w.mahlzeit, basis: c.basis,
                 zutaten: c.rows.map((x) => ({ z: x.z, g: x.g })), wasser: c.wasser, zeit: c.zeit, kocher: c.kocher,
-                zuhause: c.zuhause, unterwegs: (c.unterwegs + (w.base && hint && !c.auto ? " Hinweis: " + hint : "")).trim(),
+                zuhause: c.zuhause, unterwegs: [...c.unterwegs, ...(w.base && hint && !c.auto ? ["Hinweis zum Austausch: " + hint] : [])],
                 eigen: true
               };
               RD.rezepte.push(nr); commit();
@@ -1207,7 +1213,7 @@
 
   function openRezeptEditor(id) {
     const D = REZ();
-    const r = id ? rez(id) : { name: "", mahlzeit: "dinner", basis: "", zutaten: [{ z: D.zutaten[0].id, g: 100 }], wasser: 0, zeit: 0, kocher: true, zuhause: "", unterwegs: "" };
+    const r = id ? rez(id) : { name: "", mahlzeit: "dinner", basis: "", zutaten: [{ z: D.zutaten[0].id, g: 100 }], wasser: 0, zeit: 0, kocher: true, zuhause: "", unterwegs: [] };
     const zOpts = (sel) => D.kategorien.map((c) => `<optgroup label="${esc(c.name)}">${D.zutaten.filter((z) => z.kat === c.id).map((z) => `<option value="${z.id}" ${z.id === sel ? "selected" : ""}>${esc(z.name)}</option>`).join("")}</optgroup>`).join("");
     const zrow = (z) => `<div class="zrow"><select name="zz">${zOpts(z.z)}</select><input type="number" name="zg" min="0" value="${z.g}" aria-label="Gramm pro Portion"><button type="button" class="icon-btn" data-delrow aria-label="Zutat entfernen">${ICON.close}</button></div>`;
     openModal({
@@ -1222,7 +1228,8 @@
           <button type="button" class="btn sm" data-addrow style="align-self:flex-start;margin-top:.3rem">${ICON.plus} Zutat</button>
           <span class="hint">Fehlt eine Zutat? Im Zutaten-Register anlegen.</span></div>
         <label class="field c6">Zu Hause vorbereiten<textarea name="zuhause">${esc(r.zuhause || "")}</textarea></label>
-        <label class="field c6">Unterwegs<textarea name="unterwegs">${esc(r.unterwegs || "")}</textarea></label>
+        <label class="field c6">Unterwegs – ein Schritt pro Zeile<textarea name="unterwegs" rows="6">${esc(stepsOf(r.unterwegs).join("\n"))}</textarea>
+          <span class="hint">Platzhalter: <code>{wasser}</code> = Wassermenge des Gerichts, <code>{ml:40}</code> = 40 ml pro Portion – beides rechnet sich mit den Portionen um.</span></label>
         <label class="check c6"><input type="checkbox" name="kocher" ${r.kocher ? "checked" : ""}> Kocher nötig</label>
       </form>`,
       foot: `${id ? `<button class="btn danger" data-del>Löschen</button><span class="spacer"></span>` : ""}<button class="btn" data-close>Abbrechen</button><button class="btn primary" form="rForm">Speichern</button>`,
@@ -1236,7 +1243,7 @@
           Object.assign(item, {
             name: f.name.value.trim(), mahlzeit: f.mahlzeit.value, basis: f.basis.value.trim() || "Sonstiges",
             wasser: +f.wasser.value || 0, zeit: +f.zeit.value || 0, kocher: f.kocher.checked,
-            zuhause: f.zuhause.value.trim(), unterwegs: f.unterwegs.value.trim(),
+            zuhause: f.zuhause.value.trim(), unterwegs: stepsOf(f.unterwegs.value),
             zutaten: $$(".zrow", box).map((row) => ({ z: $("select", row).value, g: +$("input", row).value || 0 })).filter((x) => x.g > 0)
           });
           if (!id) RD.rezepte.push(item);

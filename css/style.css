@@ -433,3 +433,6 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, .btn:focus-vi
 .mug-tips summary { cursor: pointer; }
 .mug-tips ul { margin: .6rem 0 .2rem; padding-left: 1.1rem; font-size: .9rem; color: var(--ink-2); }
 .mug-tips li { margin-bottom: .35rem; }
+.steps { margin: 0 0 .9rem; padding-left: 1.3rem; }
+.steps li { margin-bottom: .45rem; padding-left: .2rem; }
+.steps li::marker { font-family: var(--font-display); font-weight: 700; color: var(--forest); }

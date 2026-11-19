@@ -26,7 +26,9 @@
     zeit          Minuten unterwegs
     kocher        true = Kocher nötig
     zuhause       was zu Hause vorbereitet wird (Beutel packen, mischen)
-    unterwegs     Zubereitung auf Tour
+    unterwegs     Zubereitung auf Tour als Liste von Schritten.
+                  {wasser}  = Wassermenge des Gerichts (passt sich an Portionen & Austausch an)
+                  {ml:130}  = feste Teilmenge pro Portion (wird mit den Portionen multipliziert)
 */
 window.REZEPT_DATA = {
   version: 1,
@@ -116,35 +118,35 @@ window.REZEPT_DATA = {
       zutaten: [{ z: "haferflocken", g: 80 }, { z: "milchpulver", g: 20 }, { z: "apfel-tr", g: 15 }, { z: "nuesse", g: 20 }, { z: "zimt", g: 1 }, { z: "zucker", g: 10 }],
       wasser: 250, zeit: 5, kocher: true,
       zuhause: "Alles in einen Zipbeutel pro Portion mischen, Apfelringe klein schneiden.",
-      unterwegs: "Wasser aufkochen, Mischung einrühren, 3–5 min abgedeckt ziehen lassen. Geht auch kalt über Nacht."
+      unterwegs: ["{wasser} Wasser in der Tasse zum Kochen bringen.", "Flamme klein stellen und den Beutelinhalt einrühren.", "1–2 min unter Rühren leicht köcheln lassen, bis der Brei andickt. Dabei immer wieder über den Boden rühren, damit nichts ansetzt.", "Vom Herd nehmen, abdecken und 3 min quellen lassen. Ist er zu fest, einen Schluck heißes Wasser unterrühren.", "Kalte Variante: abends den Beutelinhalt mit {wasser} kaltem Wasser in der Tasse verrühren und abgedeckt über Nacht stehen lassen."]
     },
     {
       id: "porridge-schoko-erdnuss", name: "Schoko-Erdnuss-Porridge", mahlzeit: "fruehstueck", basis: "Haferflocken",
       zutaten: [{ z: "haferflocken", g: 80 }, { z: "milchpulver", g: 20 }, { z: "kakao", g: 8 }, { z: "erdnussbutter", g: 25 }, { z: "bananenchips", g: 15 }, { z: "zucker", g: 10 }],
       wasser: 250, zeit: 5, kocher: true,
-      zuhause: "Trockenes in einen Beutel; Erdnussbutter aus der Tube unterwegs dazu.",
-      unterwegs: "Wie Porridge zubereiten, Erdnussbutter unterrühren, Bananenchips obendrauf."
+      zuhause: "Beutel: Haferflocken, Milchpulver, Kakao, Zucker. Separat: Erdnussbutter (Tube) und Bananenchips.",
+      unterwegs: ["{wasser} Wasser in der Tasse zum Kochen bringen.", "Flamme klein stellen und den Beutelinhalt einrühren.", "1–2 min unter Rühren leicht köcheln lassen, bis der Brei andickt. Dabei immer wieder über den Boden rühren, damit nichts ansetzt.", "Vom Herd nehmen, abdecken und 3 min quellen lassen.", "Die Erdnussbutter unterrühren und die Bananenchips obendrauf streuen."]
     },
     {
       id: "porridge-miso-ei", name: "Herzhaftes Miso-Porridge mit Ei", mahlzeit: "fruehstueck", basis: "Haferflocken",
       zutaten: [{ z: "haferflocken", g: 70 }, { z: "eipulver", g: 15 }, { z: "miso", g: 12 }, { z: "fruehlingszwiebel-tr", g: 3 }, { z: "sesam", g: 5 }, { z: "sojasauce", g: 5 }],
       wasser: 280, zeit: 6, kocher: true,
-      zuhause: "Hafer, Eipulver und Frühlingszwiebel mischen. Miso und Sesam separat.",
-      unterwegs: "Eipulver im Beutel mit einem Schluck kaltem Wasser glatt rühren. Wasser in der Tasse aufkochen, Hafer 2–3 min köcheln. Vom Herd nehmen, Ei-Mix und Miso einrühren (so klebt nichts an), Sesam drüber."
+      zuhause: "Beutel A: Haferflocken, Frühlingszwiebel. Beutel B (klein): Eipulver. Separat: Miso, Sojasauce, Sesam.",
+      unterwegs: ["{ml:40} kaltes Wasser in Beutel B gießen, verschließen und kneten, bis das Ei glatt ist.", "{ml:240} Wasser in der Tasse aufkochen.", "Beutel A einrühren und bei kleiner Flamme 2–3 min unter Rühren köcheln, bis der Brei sämig ist.", "Vom Herd nehmen und den Ei-Mix zügig einrühren. Die Hitze lässt das Ei stocken, ohne dass es am Boden ansetzt.", "Miso und Sojasauce einrühren, Sesam drüberstreuen."]
     },
     {
       id: "granola-kalt", name: "Granola mit Milch (kalt)", mahlzeit: "fruehstueck", basis: "Granola",
       zutaten: [{ z: "granola", g: 90 }, { z: "milchpulver", g: 25 }, { z: "trockenobst", g: 20 }],
       wasser: 200, zeit: 2, kocher: false,
       zuhause: "Granola, Milchpulver und Obst in einen Beutel.",
-      unterwegs: "Kaltes Wasser in den Beutel, kurz kneten, fertig. Ideal für frühe Starts ohne Kocher."
+      unterwegs: ["{wasser} kaltes Wasser direkt in den Beutel gießen.", "Beutel verschließen und etwa 30 s kneten, bis sich das Milchpulver gelöst hat.", "Direkt aus dem Beutel löffeln – die Tasse bleibt sauber."]
     },
     {
       id: "ruehrei-wrap", name: "Rührei-Wrap mit Paprika & Käse", mahlzeit: "fruehstueck", basis: "Tortilla",
       zutaten: [{ z: "tortilla", g: 80 }, { z: "eipulver", g: 30 }, { z: "paprika-tr", g: 8 }, { z: "kaesepulver", g: 10 }, { z: "olivenoel", g: 5 }],
       wasser: 80, zeit: 8, kocher: true,
-      zuhause: "Eipulver, Paprika und Käsepulver mischen.",
-      unterwegs: "Mischung im Beutel mit dem Wasser glatt rühren, 5 min quellen lassen. Ein Stück Backpapier in die Tasse legen, Öl darauf, Ei-Mix hineingießen und bei kleiner Flamme unter Rühren stocken lassen. Mit dem Papier herausheben und in die Tortillas wickeln – die Tasse bleibt sauber."
+      zuhause: "Beutel: Eipulver, Paprika, Käsepulver. Separat: Tortillas, Öl, ein Stück Backpapier (ca. 25 × 25 cm).",
+      unterwegs: ["{wasser} kaltes Wasser in den Ei-Beutel gießen, verschließen und kneten, bis alles glatt ist. 5 min quellen lassen, damit die Paprika weich wird.", "Das Backpapier in die Tasse drücken und das Öl hineingeben. Das Papier darf nicht über den Rand in die Flamme hängen.", "Ei-Mix hineingießen und bei kleinster Flamme 2–3 min mit dem Göffel rühren, bis das Ei gestockt ist.", "Das Rührei mit dem Papier aus der Tasse heben, auf die Tortillas verteilen und einrollen."]
     },
 
     // ================= SNACKS =================
@@ -153,34 +155,34 @@ window.REZEPT_DATA = {
       zutaten: [{ z: "nuesse", g: 40 }, { z: "trockenobst", g: 25 }, { z: "schokolinsen", g: 15 }],
       wasser: 0, zeit: 0, kocher: false,
       zuhause: "Großen Batch mischen und in Tagesbeutel portionieren.",
-      unterwegs: "In die Hüftgurttasche."
+      unterwegs: ["Griffbereit in die Hüftgurttasche packen und über den Tag verteilt immer wieder eine kleine Handvoll essen."]
     },
     {
       id: "pumpernickel-kaese", name: "Pumpernickel mit Bergkäse", mahlzeit: "snack", basis: "Pumpernickel",
       zutaten: [{ z: "pumpernickel", g: 100 }, { z: "hartkaese", g: 40 }],
       wasser: 0, zeit: 2, kocher: false,
       zuhause: "Käse am Stück einpacken.",
-      unterwegs: "Aufschneiden, belegen, Pause genießen."
+      unterwegs: ["Käse mit dem Taschenmesser in Scheiben schneiden.", "Pumpernickel damit belegen.", "Den angeschnittenen Käse wieder einwickeln."]
     },
     {
       id: "salami-cracker", name: "Salami & Cracker", mahlzeit: "snack", basis: "Cracker",
       zutaten: [{ z: "cracker", g: 50 }, { z: "salami", g: 40 }],
       wasser: 0, zeit: 2, kocher: false,
       zuhause: "Salami am Stück, Cracker in eine feste Dose.",
-      unterwegs: "Aufschneiden und essen."
+      unterwegs: ["Salami mit dem Taschenmesser in dünne Scheiben schneiden.", "Zusammen mit den Crackern essen.", "Die angeschnittene Salami wieder einwickeln."]
     },
     {
       id: "pb-wrap", name: "Erdnussbutter-Honig-Wrap", mahlzeit: "snack", basis: "Tortilla",
       zutaten: [{ z: "tortilla", g: 60 }, { z: "erdnussbutter", g: 30 }, { z: "honig", g: 15 }, { z: "bananenchips", g: 10 }],
       wasser: 0, zeit: 2, kocher: false,
       zuhause: "Erdnussbutter in Tube, Honig als Portionstütchen.",
-      unterwegs: "Bestreichen, Chips drauf, rollen."
+      unterwegs: ["Tortilla ausbreiten und die Erdnussbutter dünn aufstreichen.", "Honig darüber verteilen und die Bananenchips daraufstreuen.", "Fest einrollen und in der Pause essen."]
     },
     {
       id: "riegel-kekse", name: "Müsliriegel & Kekse", mahlzeit: "snack", basis: "Riegel",
       zutaten: [{ z: "muesliriegel", g: 50 }, { z: "kekse", g: 30 }],
       wasser: 0, zeit: 0, kocher: false,
-      zuhause: "", unterwegs: "Der schnelle Notfall-Snack."
+      zuhause: "Riegel und Kekse zusammen in einen Beutel.", unterwegs: ["Griffbereit in die Deckel- oder Hüftgurttasche packen – für Energietiefs zwischendurch."]
     },
 
     // ================= DINNER =================
@@ -189,84 +191,84 @@ window.REZEPT_DATA = {
       zutaten: [{ z: "couscous", g: 100 }, { z: "eipulver", g: 20 }, { z: "kaesepulver", g: 25 }, { z: "erbsen-tr", g: 20 }, { z: "pfeffer", g: 1 }, { z: "roestzwiebeln", g: 10 }, { z: "olivenoel", g: 10 }],
       wasser: 170, zeit: 8, kocher: true,
       zuhause: "Beutel A: Couscous + Erbsen. Beutel B: Eipulver + Käsepulver + Pfeffer. Röstzwiebeln separat.",
-      unterwegs: "130 ml Wasser in der Tasse aufkochen, vom Herd nehmen, Beutel A einrühren und 5 min abgedeckt quellen lassen. Beutel B im Beutel mit 40 ml warmem Wasser und dem Öl zur Creme kneten und unter den heißen Couscous heben – das Ei stockt in der Sauce statt am Tassenboden. Röstzwiebeln drüber."
+      unterwegs: ["{ml:130} Wasser in der Tasse aufkochen.", "Vom Herd nehmen, Beutel A einrühren, abdecken und 5 min quellen lassen.", "Inzwischen {ml:40} warmes Wasser und das Öl in Beutel B geben, verschließen und zu einer glatten Creme kneten.", "Couscous mit dem Göffel auflockern und die Creme unterheben. Das Ei stockt in der Restwärme, ohne am Boden anzusetzen.", "Röstzwiebeln drüberstreuen."]
     },
     {
       id: "pasta-carbonara", name: "Pasta-Carbonara mit Pilzen", mahlzeit: "dinner", basis: "Nudeln",
       zutaten: [{ z: "nudeln-schnell", g: 110 }, { z: "eipulver", g: 20 }, { z: "kaesepulver", g: 25 }, { z: "pilze-tr", g: 8 }, { z: "pfeffer", g: 1 }, { z: "olivenoel", g: 10 }],
       wasser: 400, zeit: 10, kocher: true,
-      zuhause: "Nudeln + Pilze in einen Beutel, Ei-Käse-Pfeffer-Mix separat.",
-      unterwegs: "Nudeln und Pilze in der Tasse in wenig Wasser kochen, bis es fast aufgesogen ist (kein Abgießen). Vom Herd nehmen, Ei-Käse-Mix im Beutel mit einem Schluck Wasser und dem Öl anrühren und schnell unterrühren – nicht mehr auf die Flamme stellen, sonst brennt das Ei an."
+      zuhause: "Beutel A: Nudeln, Pilze. Beutel B: Eipulver, Käsepulver, Pfeffer. Öl separat.",
+      unterwegs: ["{ml:360} Wasser in der Tasse aufkochen.", "Beutel A einrühren und bei mittlerer Flamme etwa 4 min köcheln. Oft umrühren, bis das Wasser fast aufgesogen ist – nicht abgießen, die Stärke bindet die Sauce. Wird es zu trocken, einen Schluck Wasser nachgießen.", "Inzwischen {ml:40} warmes Wasser und das Öl in Beutel B geben und zu einer Creme kneten.", "Tasse vom Herd nehmen und die Creme sofort unterrühren. Nicht mehr erhitzen, sonst brennt das Ei an."]
     },
     {
       id: "carbonara-speck", name: "Couscous-Carbonara mit Speck", mahlzeit: "dinner", basis: "Couscous",
       zutaten: [{ z: "couscous", g: 100 }, { z: "eipulver", g: 20 }, { z: "kaesepulver", g: 20 }, { z: "speckwuerfel", g: 20 }, { z: "erbsen-tr", g: 15 }, { z: "pfeffer", g: 1 }],
       wasser: 170, zeit: 8, kocher: true,
-      zuhause: "Wie die vegetarische Version, Speckwürfel zum Couscous. Für die ersten Tourtage einplanen.",
-      unterwegs: "Wasser in der Tasse aufkochen, vom Herd nehmen, Couscous mit Erbsen und Speck einrühren, 5 min quellen lassen. Ei-Käse-Mix im Beutel mit etwas warmem Wasser anrühren und unterheben."
+      zuhause: "Beutel A: Couscous, Erbsen, Speckwürfel. Beutel B: Eipulver, Käsepulver, Pfeffer. Für die ersten Tourtage einplanen – der Speck hält nur wenige Tage.",
+      unterwegs: ["{ml:130} Wasser in der Tasse aufkochen.", "Vom Herd nehmen, Beutel A einrühren, abdecken und 5 min quellen lassen.", "Inzwischen {ml:40} warmes Wasser in Beutel B geben, verschließen und zu einer glatten Creme kneten.", "Couscous mit dem Göffel auflockern und die Creme unterheben."]
     },
     {
       id: "dashi-ramen", name: "Dashi-Ramen mit Ei & Wakame", mahlzeit: "dinner", basis: "Ramen",
       zutaten: [{ z: "ramen", g: 100 }, { z: "dashi", g: 5 }, { z: "miso", g: 15 }, { z: "pilze-tr", g: 8 }, { z: "wakame", g: 2 }, { z: "fruehlingszwiebel-tr", g: 3 }, { z: "eipulver", g: 15 }, { z: "sesam", g: 5 }],
       wasser: 450, zeit: 6, kocher: true,
-      zuhause: "Dashi + Pilze + Wakame + Frühlingszwiebel in ein Tütchen. Eipulver separat.",
-      unterwegs: "Wasser mit dem Dashi-Tütchen in der Tasse aufkochen, Ramen 3 min garen. Eipulver im Beutel mit wenig kaltem Wasser anrühren und in die siedende Brühe ziehen lassen, dabei rühren – in Suppe brennt nichts an. Vom Herd, Miso lösen, Sesam drüber."
+      zuhause: "Tütchen: Dashi, Pilze, Wakame, Frühlingszwiebel. Separat: Ramen, Eipulver (kleiner Beutel), Miso, Sesam.",
+      unterwegs: ["{ml:420} Wasser mit dem Tütchen-Inhalt in der Tasse aufkochen und 2 min köcheln, damit Pilze und Wakame weich werden.", "Ramen hineinbrechen und 3 min garen, dabei mit dem Göffel auseinanderzupfen.", "Inzwischen {ml:30} kaltes Wasser in den Ei-Beutel geben und kneten, bis es glatt ist.", "Den Ei-Mix langsam in die siedende Brühe gießen und dabei rühren. So entstehen Eierflocken, und in Suppe brennt nichts an.", "Vom Herd nehmen, Miso einrühren, bis es sich gelöst hat (nicht mehr kochen), Sesam drüberstreuen."]
     },
     {
       id: "couscous-thunfisch", name: "Mediterraner Couscous mit Thunfisch", mahlzeit: "dinner", basis: "Couscous",
       zutaten: [{ z: "couscous", g: 100 }, { z: "thunfisch", g: 80 }, { z: "tomate-tr", g: 15 }, { z: "paprika-tr", g: 10 }, { z: "zucchini-tr", g: 10 }, { z: "gemuesebruehe", g: 5 }, { z: "kraeuter", g: 1 }, { z: "olivenoel", g: 15 }],
       wasser: 180, zeit: 8, kocher: true,
-      zuhause: "Couscous, Gemüse, Brühe und Kräuter in einen Beutel. Thunfisch-Dose dazu.",
-      unterwegs: "Gemüse mit Brühe 2 min im Wasser aufkochen, Couscous einrühren, 5 min abgedeckt quellen. Thunfisch und Öl frisch untermischen."
+      zuhause: "Beutel A: getrocknete Tomaten, Paprika, Zucchini, Brühe, Kräuter. Beutel B: Couscous. Separat: Thunfisch-Dose, Öl.",
+      unterwegs: ["{wasser} Wasser mit Beutel A in der Tasse aufkochen und 2 min köcheln, damit das Gemüse weich wird.", "Vom Herd nehmen, Couscous einrühren, abdecken und 5 min quellen lassen.", "Thunfisch abtropfen lassen und zusammen mit dem Öl unter den Couscous mischen.", "Leere Dose flach drücken und im Müllbeutel mitnehmen."]
     },
     {
       id: "chili-reis", name: "Chili sin Carne mit Reis", mahlzeit: "dinner", basis: "Reis",
       zutaten: [{ z: "instantreis", g: 80 }, { z: "tvp", g: 25 }, { z: "bohnen-tr", g: 30 }, { z: "mais-tr", g: 10 }, { z: "tomate-tr", g: 15 }, { z: "chilimix", g: 4 }, { z: "gemuesebruehe", g: 5 }, { z: "olivenoel", g: 10 }],
       wasser: 350, zeit: 12, kocher: true,
       zuhause: "Alles außer Öl in einen Beutel. Tomaten sehr klein schneiden.",
-      unterwegs: "In Wasser aufkochen, 5 min köcheln, 5 min abgedeckt ziehen lassen. Öl unterrühren. Mit Tortilla als Burrito noch besser."
+      unterwegs: ["{wasser} Wasser in der Tasse aufkochen und den Beutelinhalt einrühren.", "Bei kleiner Flamme 5 min köcheln, oft umrühren – Reis und Bohnen setzen sonst an.", "Vom Herd nehmen, abdecken und 5 min ziehen lassen, bis Bohnen und Soja weich sind.", "Öl unterrühren. In Tortillas gewickelt wird daraus ein Burrito."]
     },
     {
       id: "pueree-kaese", name: "Käse-Püree mit Röstzwiebeln", mahlzeit: "dinner", basis: "Kartoffelpüree",
       zutaten: [{ z: "kartoffelpueree", g: 80 }, { z: "milchpulver", g: 15 }, { z: "kaesepulver", g: 20 }, { z: "lauch-tr", g: 5 }, { z: "roestzwiebeln", g: 15 }, { z: "olivenoel", g: 10 }],
       wasser: 300, zeit: 5, kocher: true,
-      zuhause: "Püree, Milchpulver, Käse und Lauch mischen. Röstzwiebeln separat.",
-      unterwegs: "Lauch kurz im Wasser aufkochen, Tasse vom Herd nehmen, restliche Mischung einrühren – nicht weiter erhitzen, Püree und Käse kleben sonst am Boden. Röstzwiebeln obendrauf."
+      zuhause: "Beutel A: Püreeflocken, Milchpulver, Käsepulver. Separat: Lauch, Röstzwiebeln, Öl.",
+      unterwegs: ["{wasser} Wasser mit dem Lauch in der Tasse aufkochen und 1 min köcheln.", "Tasse vom Herd nehmen und etwa 30 s abkühlen lassen.", "Beutel A nach und nach einrühren, bis ein cremiges Püree entsteht. Nicht mehr erhitzen – Püree und Käse brennen sonst am Boden an.", "Öl unterrühren, Röstzwiebeln drüberstreuen."]
     },
     {
       id: "linsen-dal", name: "Rote-Linsen-Dal mit Couscous", mahlzeit: "dinner", basis: "Couscous",
       zutaten: [{ z: "couscous", g: 70 }, { z: "linsen-tr", g: 50 }, { z: "kokosmilchpulver", g: 20 }, { z: "curry", g: 4 }, { z: "karotte-tr", g: 10 }, { z: "spinat-tr", g: 5 }, { z: "gemuesebruehe", g: 5 }],
       wasser: 300, zeit: 10, kocher: true,
       zuhause: "Beutel A: Linsen, Kokosmilchpulver, Curry, Gemüse, Brühe. Beutel B: Couscous.",
-      unterwegs: "Beutel A mit dem gesamten Wasser in der Tasse 5 min köcheln, vom Herd nehmen, Couscous einrühren und 5 min abgedeckt quellen lassen – alles in einer Tasse."
+      unterwegs: ["{wasser} Wasser mit Beutel A in der Tasse aufkochen.", "Bei kleiner Flamme 5 min köcheln, oft umrühren, bis die Linsen zerfallen und das Dal cremig wird.", "Vom Herd nehmen, Beutel B (Couscous) einrühren, abdecken und 5 min quellen lassen."]
     },
     {
       id: "pesto-pasta", name: "Pesto-Pasta mit Trockentomaten", mahlzeit: "dinner", basis: "Nudeln",
       zutaten: [{ z: "nudeln-schnell", g: 110 }, { z: "olivenoel", g: 15 }, { z: "kaesepulver", g: 15 }, { z: "kraeuter", g: 2 }, { z: "knoblauch", g: 1 }, { z: "nuesse", g: 15 }, { z: "tomate-tr", g: 15 }],
       wasser: 400, zeit: 8, kocher: true,
-      zuhause: "Käse, Kräuter, Knoblauch und gehackte Nüsse (Pinienkerne, Walnüsse) als „Pesto-Pulver“ mischen.",
-      unterwegs: "Nudeln und Tomaten in wenig Wasser kochen, bis es fast weg ist. Öl und Pesto-Pulver unterrühren."
+      zuhause: "Beutel A: Nudeln, Trockentomaten. Beutel B („Pesto-Pulver“): Käsepulver, Kräuter, Knoblauch, gehackte Nüsse (Pinienkerne oder Walnüsse). Öl separat.",
+      unterwegs: ["{wasser} Wasser in der Tasse aufkochen.", "Beutel A einrühren und bei mittlerer Flamme etwa 4 min köcheln. Oft umrühren, bis das Wasser fast aufgesogen ist – nicht abgießen.", "Vom Herd nehmen, Öl und Beutel B unterrühren. Die Stärke der Nudeln macht daraus eine Sauce."]
     },
     {
       id: "erdnuss-nudeln", name: "Scharfe Erdnuss-Nudeln", mahlzeit: "dinner", basis: "Ramen",
       zutaten: [{ z: "ramen", g: 100 }, { z: "erdnussbutter", g: 30 }, { z: "sojasauce", g: 10 }, { z: "tvp", g: 20 }, { z: "karotte-tr", g: 8 }, { z: "paprika-tr", g: 8 }, { z: "fruehlingszwiebel-tr", g: 3 }, { z: "knoblauch", g: 1 }],
       wasser: 350, zeit: 6, kocher: true,
       zuhause: "Ramen, TVP, Gemüse und Knoblauch in einen Beutel. Erdnussbutter und Soja separat.",
-      unterwegs: "Alles 3 min kochen, fast alles Wasser verkochen lassen. Erdnussbutter und Soja zur Sauce rühren, nach Lust Chiliflocken."
+      unterwegs: ["{wasser} Wasser in der Tasse aufkochen und den Beutelinhalt einrühren, die Ramen dabei zerbrechen.", "3 min köcheln, bis die Nudeln weich sind und nur noch ein paar Esslöffel Wasser übrig sind.", "Vom Herd nehmen, Erdnussbutter und Sojasauce einrühren, bis eine cremige Sauce entsteht. Nach Lust Chiliflocken dazu."]
     },
     {
       id: "couscous-chorizo", name: "Paprika-Couscous mit Chorizo", mahlzeit: "dinner", basis: "Couscous",
       zutaten: [{ z: "couscous", g: 100 }, { z: "chorizo", g: 50 }, { z: "paprika-tr", g: 15 }, { z: "tomate-tr", g: 10 }, { z: "gemuesebruehe", g: 5 }, { z: "knoblauch", g: 1 }],
       wasser: 170, zeit: 8, kocher: true,
-      zuhause: "Couscous, Gemüse, Brühe, Knoblauch in einen Beutel. Chorizo am Stück.",
-      unterwegs: "Beutel mit dem Wasser in der Tasse aufkochen, vom Herd nehmen, 5 min abgedeckt quellen lassen. Chorizo würfeln und unterheben (Anrösten in der Tasse brennt an)."
+      zuhause: "Beutel A: Paprika, Tomaten, Brühe, Knoblauch. Beutel B: Couscous. Chorizo am Stück.",
+      unterwegs: ["{wasser} Wasser mit Beutel A in der Tasse aufkochen und 2 min köcheln.", "Vom Herd nehmen, Couscous einrühren, abdecken und 5 min quellen lassen.", "Chorizo klein würfeln und unterheben. Nicht in der Tasse anrösten – das brennt an."]
     },
     {
       id: "bulgur-pilz", name: "Pilz-Bulgur mit Bergkäse", mahlzeit: "dinner", basis: "Bulgur",
       zutaten: [{ z: "bulgur-fein", g: 100 }, { z: "pilze-tr", g: 10 }, { z: "lauch-tr", g: 5 }, { z: "gemuesebruehe", g: 6 }, { z: "hartkaese", g: 40 }, { z: "pfeffer", g: 1 }, { z: "olivenoel", g: 10 }],
       wasser: 220, zeit: 12, kocher: true,
       zuhause: "Bulgur, Pilze, Lauch, Brühe und Pfeffer in einen Beutel.",
-      unterwegs: "In der Tasse aufkochen, 10 min abgedeckt quellen lassen (Tasse in die Jacke wickeln spart Gas). Käse drüberreiben, Öl dazu."
+      unterwegs: ["{wasser} Wasser mit dem Beutelinhalt in der Tasse aufkochen.", "1 min köcheln, dann vom Herd nehmen, abdecken und 10 min quellen lassen. Die Tasse in Jacke oder Mütze wickeln, damit sie heiß bleibt.", "Mit dem Göffel auflockern, den Käse drüberreiben oder würfeln und das Öl dazugeben."]
     }
   ]
 };
