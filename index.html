@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Packliste</title>
+  <meta name="description" content="Interaktive Packliste mit Essensplaner und Wandergerichten">
+  <meta name="theme-color" content="#2f5241">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232f5241'/%3E%3Cpath d='M4 25 L12 12 L16 18 L20 10 L28 25 Z' fill='%23f5efe2'/%3E%3C/svg%3E">
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="brand" href="#packliste" aria-label="Packliste – Start">
+        <svg viewBox="0 0 40 32" aria-hidden="true"><path d="M2 29 L14 9 L20 18 L26 6 L38 29 Z" fill="currentColor"/><path d="M14 9 L17 14 L14 13 L11 14 Z M26 6 L29.5 12 L26 11 L22.5 12 Z" fill="#f5efe2" opacity=".85"/></svg>
+        <span>Packliste</span>
+      </a>
+      <nav class="tabs" role="tablist">
+        <a href="#packliste" data-tab="packliste" role="tab">Packliste</a>
+        <a href="#essen" data-tab="essen" role="tab">Essensplaner</a>
+        <a href="#rezepte" data-tab="rezepte" role="tab">Wandergerichte</a>
+      </nav>
+      <label class="edit-toggle" title="Items, Module und Rezepte bearbeiten (nur in diesem Browser)">
+        <input type="checkbox" id="editToggle">
+        <span class="switch" aria-hidden="true"></span>
+        <span class="lbl">Bearbeiten</span>
+      </label>
+    </div>
+    <svg class="ridge" viewBox="0 0 1440 40" preserveAspectRatio="none" aria-hidden="true">
+      <path d="M0 40 L0 22 L90 8 L170 26 L260 4 L360 24 L450 14 L560 30 L660 6 L760 22 L860 12 L960 28 L1060 2 L1160 24 L1250 14 L1350 26 L1440 10 L1440 40 Z" fill="var(--paper)"/>
+    </svg>
+  </header>
+
+  <div id="editBanner" class="edit-banner" hidden></div>
+
+  <main id="app">
+    <section id="view-packliste" class="view" hidden></section>
+    <section id="view-essen" class="view" hidden></section>
+    <section id="view-rezepte" class="view" hidden></section>
+  </main>
+
+  <footer class="site-footer">
+    <p>Haken &amp; Trips werden nur in diesem Browser gespeichert. Die Stammdaten liegen in <code>data/</code> im Repository.</p>
+  </footer>
+
+  <div id="modalRoot"></div>
+  <div id="toast" role="status" aria-live="polite"></div>
+
+  <script src="data/packliste.js"></script>
+  <script src="data/rezepte.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
