@@ -91,3 +91,7 @@ keys/keyring.enc               deine Urlaube und ihre Schlüssel (mit Passwort v
 trips/<urlaub-id>.enc          ein Urlaub
 files/<urlaub-id>/<id>.enc     Tickets, Unterlagen, GPX-Dateien und Fotos (Foto + Vorschau „_t“)
 ```
+
+## Hintergründe
+
+Die Höhenlinien im Hintergrund sind aus echten Geländedaten berechnet (je Reiter ein Gebiet: Tongariro Crossing, La Gomera, Seiland, Vancouver Island/Strathcona, Broughton Archipelago). Datenquelle: [Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) auf AWS Open Data (Mapzen; enthält u. a. SRTM, ETOPO1, GMTED, Land Information New Zealand CC BY 4.0, Kartverket CC BY 4.0, Natural Resources Canada). Dateien: `img/bg/*.svg`.

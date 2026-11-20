@@ -1415,6 +1415,26 @@
     if (TABS.includes(h)) state.ui.tab = h;
     render();
   }
+  // Hintergründe: Höhenlinien echter Gebiete (Daten: Mapzen Terrain Tiles / SRTM u. a.)
+  const BG = {
+    tongariro: ["Tongariro Crossing", "39°11′S 175°36′E", 50],
+    gomera: ["La Gomera", "28°07′N 17°13′W", 50],
+    seiland: ["Seiland", "70°26′N 23°06′E", 50],
+    vancouver: ["Vancouver Island · Strathcona", "49°43′N 125°37′W", 100],
+    broughton: ["Broughton Archipelago", "50°44′N 126°30′W", 100],
+  };
+  const TAB_BG = { urlaube: "tongariro", karte: "broughton", plan: "vancouver", unterwegs: "gomera", kosten: "seiland", packliste: "broughton", essen: "gomera", rezepte: "tongariro", einstellungen: "vancouver" };
+  function setBackground(tab) {
+    const key = TAB_BG[tab] || "tongariro";
+    const layer = $(".bg-layer"); if (!layer || layer.dataset.key === key) return;
+    layer.dataset.key = key;
+    let el = layer.querySelector('i[data-k="' + key + '"]');
+    if (!el) { el = document.createElement("i"); el.dataset.k = key; el.style.backgroundImage = "url(img/bg/" + key + ".svg)"; layer.appendChild(el); }
+    layer.querySelectorAll("i").forEach((x) => x.classList.toggle("on", x === el));
+    const m = BG[key], lab = $(".bg-label");
+    if (lab) lab.innerHTML = "<b>" + esc(m[0]) + "</b> · " + m[1] + " · Äquidistanz " + m[2] + " m";
+  }
+
   function render() {
     let tab = state.ui.tab;
     const t = trip();
@@ -1425,6 +1445,7 @@
       if (TRIP_TABS.includes(a.dataset.tab)) a.classList.toggle("disabled", !t);
     });
     document.title = TITLES[tab] + (t && TRIP_TABS.includes(tab) ? " · " + tripName(t) : "") + " · Urlaubsplanung";
+    setBackground(tab);
     renderBanner();
     if (window.PL.renderHeader) window.PL.renderHeader();
     if (tab === "packliste") renderPack();
