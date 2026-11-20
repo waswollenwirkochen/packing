@@ -1,82 +1,81 @@
-# Packliste · Essensplaner · Wandergerichte
+# Urlaubsplanung
 
-Eine interaktive Packliste als statische Website für GitHub Pages. Kein Build-Schritt, keine Abhängigkeiten.
+Urlaube gemeinsam planen und unterwegs alles griffbereit haben. Das Ganze ist eine statische Website für GitHub Pages, ohne Server und ohne Build-Schritt.
 
-- **Packliste:** Trips mit Name, Zeitraum (eintippen oder per Kalender wählen) und beliebig vielen Teilnehmenden, deren Namen optional sind. Die Reisearten Wandern und Stadt lassen sich kombinieren. Die Mengen werden aus der Reisedauer berechnet, mit Obergrenze. Items bekommen Tags („gemeinsam“, Personen). Dazu Packphasen, To-dos, Abhaken, Zurücksetzen, Drucken und Teilen per Link.
-- **Essensplaner:** Wandertage × Frühstück / Snacks / Dinner. Anreise- und Abreisetag werden automatisch angepasst, einzelne Mahlzeiten lassen sich entfernen. Daraus entstehen eine Einkaufsliste, die Dehydrier-Batches und die Beutel zum Packen.
-- **Reiseverlauf:** Die Reisetage als Leiste. Bei Kombi-Urlauben markierst du, welche Tage Wandern und welche Stadt sind. Die Mengen richten sich nach diesen Tagen.
-- **Wandergerichte:** Rezeptesammlung nach dem Baukasten-Prinzip Carbs + Gemüse + Protein + Geschmack, plus ein Zutaten-Register. In jedem Gericht lassen sich Zutaten austauschen. Gramm, Wasser, Zeit und Zubereitung passen sich dabei an. Mit „Freestyle“ baust du eigene Gerichte zusammen und kannst sie speichern. Die Tipps sind auf das Kochen in einer einzigen Tasse ausgelegt.
+| Reiter | Was er kann |
+|---|---|
+| **Urlaube** | Alle Urlaube auf einen Blick, neuen Urlaub anlegen (Wo, Wann, Wer), Import aus Excel |
+| **Planung** | Tagesplan wie eine Tabelle: Datum, Art des Tages, Programm, Von/Nach, km, Dauer, Höhenmeter, Highlights, Unterkunft, Hinweise. Summen, Kartenansicht fürs Handy, Excel-Export |
+| **Unterwegs** | Der heutige Tag auf einen Blick, mit Tickets und Unterlagen – auch offline |
+| **Kosten** | Wer hat was bezahlt, für wen; Saldo pro Person und Vorschlag mit möglichst wenigen Überweisungen |
+| **Packliste** | Interaktive Packliste mit Mengen nach Reisedauer, Tags (gemeinsam/Person), Haken pro Person |
+| **Essen** | Essensplaner für Wandertage mit Einkaufs- und Dehydrierliste |
+| **Rezepte** | Wandergerichte mit Austausch-Werkbank und Freestyle-Baukasten |
 
-## Auf GitHub Pages veröffentlichen
+## Datenschutz: Wer sieht was?
 
-1. Auf GitHub ein neues Repository anlegen, z. B. `packliste`.
-2. Den Inhalt dieses Ordners hochladen (*Add file → Upload files*, alles hineinziehen) und committen.
-3. *Settings → Pages → Build and deployment*: als Quelle „Deploy from a branch“, Branch `main`, Ordner `/ (root)` wählen und speichern.
-4. Nach ca. 1 Minute ist die Seite unter `https://<dein-name>.github.io/packliste/` erreichbar.
+Die Website (dieses Repo) ist öffentlich, **deine Urlaubsdaten sind es nicht**.
 
-> Hinweis: Mit einem kostenlosen GitHub-Account sind das Repository und die Seite öffentlich. Wer den Link kennt, sieht die Stammdaten, also alle Items und Rezepte. Deine Haken und Trips liegen dagegen nur in deinem Browser.
+- Jeder Urlaub bekommt einen eigenen, zufälligen Schlüssel (AES-256-GCM). Tagesplan, Kosten, Packliste und Tickets werden **im Browser verschlüsselt** und erst dann in dein **privates Daten-Repo** hochgeladen. GitHub sieht nur unlesbaren Zeichensalat.
+- Welche Urlaube dir gehören, steht in `keys/keyring.enc`. Diese Datei ist mit deinem **Passwort** verschlüsselt. Mit Daten-Repo, Token und Passwort kommst du auf jedem neuen Gerät an alle deine Urlaube.
+- **Einladen:** Über „Einladen“ entsteht ein Link, der den Schlüssel *genau dieses einen Urlaubs* enthält. Wer ihn öffnet, kann diesen Urlaub sehen und bearbeiten. Andere Urlaube bleiben für diese Person unlesbar.
+- Der Einladungs-Link enthält auch den Token für das Daten-Repo. Deshalb: nur direkt verschicken (Signal, WhatsApp …), nie öffentlich posten. **Zugang entziehen:** auf GitHub einen neuen Token erstellen, den alten löschen und Mitreisende neu einladen.
+- Wer welche Person ist („Ich bin …“), Token und Passwort-Schlüssel bleiben auf dem jeweiligen Gerät.
 
-## Wo was gespeichert wird
+## Einmalig einrichten (5 Minuten)
 
-| Was | Wo | Wer sieht es |
-|---|---|---|
-| Items, Module, Rezepte (Stammdaten) | `data/packliste.js`, `data/rezepte.js` im Repo | alle |
-| Trips, Haken, Mengen-Anpassungen, Essensplan | im Browser (localStorage) | nur dieses Gerät |
-| Änderungen im Bearbeiten-Modus | im Browser | nur dieses Gerät, bis exportiert |
+1. **Privates Daten-Repo anlegen:** auf github.com → „+“ → „New repository“, Name z. B. `packing-data`, **Private**, Haken bei „Add a README file“ → „Create repository“.
+2. **Token erstellen:** [github.com/settings/personal-access-tokens/new](https://github.com/settings/personal-access-tokens/new)
+   - Name: `Urlaubsplanung`, Ablauf: 1 Jahr
+   - Repository access: **Only select repositories → packing-data**
+   - Permissions → Repository permissions → **Contents: Read and write**
+   - „Generate token“ und den Token kopieren (beginnt mit `github_pat_`).
+3. **In der Website verbinden:** Zahnrad (Einstellungen) → Daten-Repo `dein-name/packing-data`, Token einfügen, Passwort wählen (mind. 8 Zeichen, gut merken!) → „Verbinden“.
 
-Niemand sonst kann deine Liste verändern. Wer im Bearbeiten-Modus etwas ändert, ändert nur die eigene Kopie im eigenen Browser.
+Danach werden alle Urlaube automatisch synchronisiert: nach jeder Änderung, beim Öffnen der Seite und jede Minute, solange sie offen ist. Der Punkt neben der Urlaubs-Auswahl zeigt den Status: grün = synchronisiert, gelb = speichert, grau = nur lokal / offline.
 
-**Stammdaten dauerhaft ändern:** Den Bearbeiten-Modus einschalten, die Änderungen machen und auf *Exportieren* klicken. Den Inhalt dann auf GitHub in `data/packliste.js` bzw. `data/rezepte.js` einfügen (Datei öffnen → Stift → alles ersetzen → *Commit changes*). Danach im Banner auf *Lokale Änderungen verwerfen* klicken, damit dein Browser wieder den Stand aus dem Repo zeigt.
+## Tickets & Unterlagen
 
-## Mengenregeln
+Zu jedem Tag kannst du PDFs, Bilder, Buchungsbestätigungen usw. hinterlegen, bis 25 MB pro Datei: in der Planung über das Büroklammer-Symbol oder unter „Unterwegs“. Die Dateien werden verschlüsselt hochgeladen und auf jedem Gerät, das den Urlaub öffnet, **automatisch offline gespeichert**. So funktioniert das Kino-Ticket auch im Funkloch.
 
-Jedes Item kann eine Regel haben:
+Hinweise:
+- Original-Tickets trotzdem in der Mail oder Wallet behalten. Die Website ist eine bequeme Kopie, keine Ablage für Originale.
+- Ausweis- oder Passkopien besser nicht hochladen. Verschlüsselt wäre es zwar, aber je weniger sensible Kopien herumliegen, desto besser.
 
-```js
-menge: { basis: 1, proTag: 1, max: 6 }
-// Menge = aufrunden(basis + proTag × Reisetage), höchstens max
-// 3 Tage → 4, 5 Tage → 6, 10 Tage → 6
-```
+## Als App aufs Handy
 
-- `proTag: 0.5` bedeutet ein Stück pro 2 Tage, `0.34` ein Stück pro 3 Tage.
-- Ohne `proTag` ist die Menge einfach `basis` (Standard: 1).
-- Eine abweichende Regel je Reiseart steht in `mengeJe`, z. B. `{ wandern: { basis: 2, proTag: 0.34, max: 4 } }`. Bei Kombi-Reisen gilt die größere Menge.
-- In der Liste lässt sich die Menge pro Trip mit −/+ anpassen. Ein Doppelklick auf die Zahl stellt den berechneten Wert wieder her.
-- Im Bearbeiten-Modus zeigt der Item-Dialog eine Vorschau für 1–14 Tage.
+Seite im Handy-Browser öffnen → Menü → **„Zum Startbildschirm hinzufügen“**. Die App startet dann direkt mit „Unterwegs“ und funktioniert dank Service Worker auch ohne Netz. Änderungen, die du offline machst, werden synchronisiert, sobald wieder Netz da ist.
 
-## Kombi-Urlaub: Mengen
+## Excel
 
-Bei mehreren Reisearten zählt die Seite die Tage je Art aus dem Reiseverlauf. Pro Item gilt:
-`Menge = größte Basis + Σ (proTag der Reiseart × Tage dieser Art)`, höchstens bis zur größten Obergrenze.
-Items, die nur zu einer Reiseart gehören, erscheinen nur, wenn diese Art mindestens einen Tag hat.
+- **Export:** In der Planung auf „Excel“ klicken. Die Datei enthält die Blätter Tagesplan (mit Summen), Kosten, Abrechnung, Packliste und Essensplan. Die Excel-Bibliothek (ExcelJS) wird nur dafür geladen.
+- **Import:** Unter „Urlaube“ auf „Aus Excel importieren“ klicken. Erkannt wird das Format deiner bisherigen Tabelle: Kopfzeile mit `Datum | Wochentag | What do | Strecke | Unterkunft | Hinweise | Sonstiges` und darunter ein Kostenblock `Datum | Kosten | Kostengrund | wer bezahlt?`. Die Strecke `11km; 5h; 1300/350` wird zu km, Dauer und Höhenmetern. Tage mit Höhenmetern werden zu Wanderungen, „Fahrtag“ zu Fahrtagen.
 
-## Austauschen & Freestyle
+## Bei Problemen
 
-Jede Zutat im Register hat eine übliche `portion` (Gramm), einen Wasserbedarf `wasser` (ml pro Gramm) und eine `zeit`. Beim Austauschen wird die Grammzahl auf die übliche Portion der neuen Zutat umgerechnet (z. B. 100 g Couscous → 110 g Nudeln). Wasser und Zeit werden neu berechnet. Wird die Carb-Basis getauscht, erzeugt die Seite die Zubereitung neu aus den Bausteinen. Zutaten mit `klebt: true` (Ei, Käse, Püree) bekommen einen Backpapier-Hinweis. Gespeicherte Varianten und Freestyle-Gerichte landen in den lokalen Daten. Für alle Geräte: exportieren und ins Repo übernehmen.
-
-## Tags
-
-Über das Tag-Symbol an jedem Item:
-
-- **kein Tag:** Jede Person packt ihr eigenes (z. B. Zahnbürste).
-- **Person:** Nur diese Person braucht bzw. bringt es (z. B. BH → Person 2).
-- **gemeinsam + Person:** Eins für alle, diese Person bringt es mit (z. B. Zelt → Person 1).
-- **nur gemeinsam:** Noch offen. Das Item wird als „gemeinsam · wer?“ markiert.
-
-Items mit `geteilt: true` in den Stammdaten starten mit dem Tag „gemeinsam“. Tags gelten pro Trip.
-
-## Teilen
-
-*Teilen* erzeugt einen Link, der Trip, Teilnehmende, Module, Tags und den Essensplan enthält. Die empfangende Person wählt „Ich bin …“ und kann dann die Ansicht „Was bringt … mit?“ nutzen. Haken werden nicht mitgeschickt.
+- **„Token ungültig“ / „Kein Zugriff“:** Token abgelaufen oder ohne Contents-Schreibrecht → neuen Token erstellen und in den Einstellungen neu verbinden.
+- **„Passwort falsch“:** Das Passwort muss dasselbe sein wie beim ersten Verbinden. Ohne Passwort lassen sich deine Urlaube auf neuen Geräten nicht öffnen. Eingeladene Urlaube funktionieren über ihren Link weiter.
+- **Gleichzeitig bearbeitet:** Änderungen verschiedener Personen werden zusammengeführt, auch Zeile für Zeile im Tagesplan. Haben zwei Personen dieselbe Zelle geändert, gewinnt die zuletzt gespeicherte Änderung.
+- **Sicherung:** Einstellungen → „Sicherung herunterladen“ speichert alle Urlaube dieses Browsers als Datei (unverschlüsselt, ohne Tickets).
 
 ## Dateien
 
 ```
-index.html        Gerüst
-css/style.css     Gestaltung (inkl. Druckansicht)
-js/app.js         gesamte Logik
-data/packliste.js Packlisten-Stammdaten (Felder oben in der Datei erklärt)
-data/rezepte.js   Zutaten-Register und Rezepte (Felder oben in der Datei erklärt)
+index.html            Gerüst
+css/style.css         Gestaltung (inkl. Druckansicht)
+js/sync.js            Verschlüsselung, GitHub-Daten-Repo, Offline-Speicher, Zusammenführen
+js/app.js             Packliste, Essensplaner, Wandergerichte, gemeinsame Bausteine
+js/urlaub.js          Urlaube, Planung, Unterwegs, Kosten, Einladen, Excel
+data/packliste.js     Packlisten-Stammdaten (Felder oben in der Datei erklärt)
+data/rezepte.js       Zutaten-Register und Rezepte (Felder oben in der Datei erklärt)
+sw.js                 Service Worker (offline) – bei App-Updates VERSION erhöhen
+manifest.webmanifest  App-Name und -Symbol für den Startbildschirm
 ```
 
-Die Seite funktioniert auch lokal: einfach `index.html` im Browser öffnen.
+### Im Daten-Repo (alles verschlüsselt)
+
+```
+keys/keyring.enc               deine Urlaube und ihre Schlüssel (mit Passwort verschlüsselt)
+trips/<urlaub-id>.enc          ein Urlaub
+files/<urlaub-id>/<id>.enc     Tickets und Unterlagen
+```

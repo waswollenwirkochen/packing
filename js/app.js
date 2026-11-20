@@ -43,7 +43,10 @@
   const store = {
     load() { try { return JSON.parse(localStorage.getItem(KEY)) || null; } catch { return null; } },
     save() {
-      try { localStorage.setItem(KEY, JSON.stringify({ trips: state.trips, current: state.current, ui: state.ui, data: state.data })); }
+      try {
+        localStorage.setItem(KEY, JSON.stringify({ trips: state.trips, current: state.current, ui: state.ui, data: state.data,
+          me: state.me, keys: state.keys, syncCfg: state.syncCfg, base: state.base, deleted: state.deleted, fileDeletes: state.fileDeletes }));
+      }
       catch { /* Speicher nicht verfügbar – Seite funktioniert trotzdem */ }
     }
   };
@@ -53,7 +56,13 @@
   const state = {
     trips: saved.trips || {},
     current: saved.current || null,
-    ui: Object.assign({ tab: "packliste", groupBy: "modul", hidePacked: false, hideOptional: false, viewPerson: "alle",
+    me: saved.me || {},            // wer bin ich – pro Urlaub, nur auf diesem Gerät
+    keys: saved.keys || {},        // Urlaub-id → { k: Schlüssel, o/r/t: Daten-Repo }, nur auf diesem Gerät
+    syncCfg: saved.syncCfg || null, // eigenes Daten-Repo + Passwort-Schlüssel
+    base: saved.base || {},        // zuletzt synchronisierter Stand je Urlaub (für den 3-Wege-Abgleich)
+    deleted: saved.deleted || [],  // gelöschte Urlaube, die noch im Daten-Repo entfernt werden müssen
+    fileDeletes: saved.fileDeletes || [],
+    ui: Object.assign({ tab: "urlaube", groupBy: "modul", hidePacked: false, hideOptional: false, viewPerson: "alle",
       rFilter: { mahlzeit: "alle", basis: "alle", diaet: "alle", q: "" }, rSub: "gerichte" }, saved.ui || {}),
     data: saved.data || null, // lokale Kopie der Stammdaten, falls bearbeitet
     edit: false
@@ -75,11 +84,15 @@
   }
   function newTrip(arten = ["wandern"]) {
     const first = { id: uid(), name: "" };
-    return {
-      id: uid(), name: "", arten: [...arten], von: "", bis: "", tage: 5,
-      personen: [first], ich: first.id, module: presetModules(arten),
-      tags: {}, status: {}, menge: {}, essen: null
+    const t = {
+      id: uid() + uid(), name: "", ziel: "", arten: [...arten], von: "", bis: "", tage: 5,
+      personen: [first], module: presetModules(arten),
+      plan: [], kosten: [], tickets: [], waehrung: "€",
+      tags: {}, status: {}, menge: {}, essen: null, erstellt: new Date().toISOString()
     };
+    state.me[t.id] = first.id;
+    state.keys[t.id] = { k: window.PL.sync.randomKey(), owner: true };
+    return t;
   }
   // ältere gespeicherte Trips auf das neue Format bringen
   function migrate(t) {
@@ -95,6 +108,12 @@
     t.personen = (t.personen || []).map((p) => ({ id: p.id, name: p.name === "Ich" ? "" : p.name || "" }));
     if (!t.personen.length) t.personen = [{ id: uid(), name: "" }];
     t.menge ||= {}; t.status ||= {};
+    t.plan ||= []; t.kosten ||= []; t.tickets ||= []; t.ziel ??= ""; t.waehrung ||= "€";
+    if (t.ich) { if (!state.me[t.id]) state.me[t.id] = t.ich; delete t.ich; }
+    // Haken früher pro Gerät, jetzt pro Person
+    const vals = Object.values(t.status);
+    if (vals.length && vals.some((v) => typeof v === "string")) t.status = { [state.me[t.id] || "_"]: t.status };
+    if (!state.keys[t.id] && window.PL.sync.available) state.keys[t.id] = { k: window.PL.sync.randomKey(), owner: true };
     return t;
   }
   Object.values(state.trips).forEach(migrate);
@@ -102,12 +121,16 @@
   function trip() {
     if (!state.current || !state.trips[state.current]) {
       const ids = Object.keys(state.trips);
-      if (ids.length) state.current = ids[0];
-      else { const t = newTrip(); state.trips[t.id] = t; state.current = t.id; }
+      state.current = ids.length ? ids[0] : null;
     }
-    return state.trips[state.current];
+    return state.current ? state.trips[state.current] : null;
   }
-  const tripName = (t) => (t.name || "").trim() || "Unbenannter Trip";
+  const tripName = (t) => (t.name || "").trim() || (t.ziel || "").trim() || "Unbenannter Urlaub";
+  // wer bin ich in diesem Urlaub (nur auf diesem Gerät gespeichert)
+  const myId = (t) => (state.me[t.id] && t.personen.some((p) => p.id === state.me[t.id]) ? state.me[t.id] : (t.personen.length === 1 ? t.personen[0].id : null));
+  const setMe = (t, id) => { if (id) state.me[t.id] = id; else delete state.me[t.id]; };
+  // Haken der Packliste – pro Person
+  const ST = (t) => { t.status ||= {}; const k = myId(t) || "_"; return (t.status[k] ||= {}); };
   const person = (t, id) => t.personen.find((p) => p.id === id);
   const pname = (t, p) => (p && p.name && p.name.trim()) || (p ? `Person ${t.personen.indexOf(p) + 1}` : "");
   const artNames = (t) => t.arten.map((a) => PACK().arten.find((x) => x.id === a)?.name || a).join(" + ");
@@ -124,7 +147,20 @@
   // Tage je Reiseart (Kombi-Urlaub): t.tagArt = ["wandern", "stadt", …] pro Reisetag
   function dayArts(t) {
     if (t.arten.length < 2) return Array(t.tage).fill(t.arten[0]);
-    const arr = (t.tagArt || []).slice(0, t.tage);
+    let src = t.tagArt || [];
+    if (!t.tagArtManual && (t.plan || []).some((r) => r.typ)) {
+      // aus der Tagesplanung ableiten: Wanderung → Wandern, Stadt/Strand → Stadt
+      // Fahrt-, Stadt- und Strandtage zählen als „Stadt“ (Alltagskleidung), Ruhetage übernehmen den Vortag
+      const alt = t.arten.find((a) => a !== "wandern") || t.arten[0];
+      let last = alt;
+      src = Array.from({ length: t.tage }, (_, i) => {
+        const typ = t.plan[i] && t.plan[i].typ;
+        if (typ === "wandern" && t.arten.includes("wandern")) last = "wandern";
+        else if (["stadt", "strand", "fahrt"].includes(typ)) last = alt;
+        return last;
+      });
+    }
+    const arr = src.slice(0, t.tage);
     while (arr.length < t.tage) arr.push(arr.length ? arr[arr.length - 1] : t.arten[0]);
     return arr.map((a) => (t.arten.includes(a) ? a : t.arten[0]));
   }
@@ -176,7 +212,7 @@
     if (t.personen.length > 1 && vp !== "alle" && person(t, vp)) {
       items = items.filter((it) => { const b = bringers(t, it); return !b.length || b.includes(vp); });
     }
-    if (state.ui.hideOptional) items = items.filter((it) => !it.optional || t.status[it.id] === "gepackt");
+    if (state.ui.hideOptional) items = items.filter((it) => !it.optional || ST(t)[it.id] === "gepackt");
     return items;
   }
   // ---------- Toast & Modal ----------
@@ -267,6 +303,37 @@
     </div>`;
   }
 
+  // Bearbeitbare Eckdaten eines Urlaubs (Name, Ziel, Reiseart, Zeitraum, Teilnehmende)
+  function metaFields(t) {
+    return `<div class="meta-grid">
+        <label class="field m-name">Name des Urlaubs<input data-bind="name" value="${esc(t.name)}" placeholder="z. B. Roadtrip Alpen 2027"></label>
+        <label class="field m-ziel">Wo geht’s hin?<input data-bind="ziel" value="${esc(t.ziel || "")}" placeholder="z. B. Queyras, Lyon, Genua"></label>
+        <div class="field m-art"><span>Reiseart <span class="muted" style="font-weight:400">– kombinierbar</span></span>
+          <div class="row" style="gap:.35rem">
+            ${P.arten.map((a) => `<button class="chip ${t.arten.includes(a.id) ? "on" : ""}" data-act="toggle-art" data-id="${a.id}" aria-pressed="${t.arten.includes(a.id)}">${esc(a.name)}</button>`).join("")}
+          </div>
+        </div>
+        <div class="field m-date">Reisezeitraum
+          <div class="date-row">
+            <input class="input" data-bind="von" value="${toDE(t.von)}" placeholder="TT.MM.JJJJ" inputmode="numeric" aria-label="Von">
+            <span class="muted">–</span>
+            <input class="input" data-bind="bis" value="${toDE(t.bis)}" placeholder="TT.MM.JJJJ" inputmode="numeric" aria-label="Bis">
+            <button class="btn cal-btn ${cal.open ? "on" : ""}" data-act="cal-toggle" title="Kalender öffnen" aria-label="Kalender öffnen" aria-expanded="${cal.open}">${ICON.calendar}</button>
+          </div>
+          ${cal.open ? renderCal(t) : ""}
+        </div>
+        <div class="trip-grid m-count">
+          <label class="field">Tage<input type="number" min="1" max="60" data-bind="tage" value="${t.tage}"></label>
+          <label class="field">Teilnehmende<input type="number" min="1" max="12" data-bind="anzahl" value="${t.personen.length}"></label>
+        </div>
+        <div class="field m-names"><span>Namen <span class="muted" style="font-weight:400">– optional</span></span>
+          <div class="names">
+            ${t.personen.map((p, i) => `<input class="input" data-pname="${p.id}" value="${esc(p.name)}" placeholder="Person ${i + 1}" maxlength="30" aria-label="Name Person ${i + 1}">`).join("")}
+          </div>
+        </div>
+      </div>`;
+  }
+
   let brush = null; // aktuell gewählte Reiseart zum Markieren der Tage
   function renderTimeline(t) {
     const P = PACK();
@@ -302,59 +369,32 @@
     if (multi && state.ui.viewPerson !== "alle" && !person(t, state.ui.viewPerson)) state.ui.viewPerson = "alle";
 
     const all = tripItems(t);
-    const done = all.filter((i) => t.status[i.id] === "gepackt").length;
-    const skip = all.filter((i) => t.status[i.id] === "weg").length;
+    const done = all.filter((i) => ST(t)[i.id] === "gepackt").length;
+    const skip = all.filter((i) => ST(t)[i.id] === "weg").length;
     const total = all.length;
-    const openShared = multi ? all.filter((i) => isShared(t, i) && !bringers(t, i).length && t.status[i.id] !== "weg").length : 0;
-    const weight = all.reduce((s, i) => s + (t.status[i.id] !== "weg" && i.gewicht && !i.aufgabe ? i.gewicht * qtyOf(t, i) : 0), 0);
+    const openShared = multi ? all.filter((i) => isShared(t, i) && !bringers(t, i).length && ST(t)[i.id] !== "weg").length : 0;
+    const weight = all.reduce((s, i) => s + (ST(t)[i.id] !== "weg" && i.gewicht && !i.aufgabe ? i.gewicht * qtyOf(t, i) : 0), 0);
 
-    const tripOpts = Object.values(state.trips).map((x) => `<option value="${x.id}" ${x.id === t.id ? "selected" : ""}>${esc(tripName(x))}</option>`).join("");
-    const me = person(t, t.ich);
+    const me = person(t, myId(t));
     const range = t.von ? fmtDate(t.von, { day: "numeric", month: "short", year: "numeric" }) + (t.bis ? " – " + fmtDate(t.bis, { day: "numeric", month: "short", year: "numeric" }) : "") : "";
 
     el.innerHTML = `
     <div class="pack-layout">
       <aside class="card card-pad trip-card stack">
-        <div class="trip-select no-print">
-          <select class="input" data-act="switch-trip" aria-label="Trip wählen">${tripOpts}</select>
-          <button class="btn sm" data-act="new-trip" title="Neuen Trip anlegen">${ICON.plus} Neu</button>
-        </div>
         <div>
           <div class="print-only small muted">Packliste</div>
           <h2>${esc(tripName(t))}</h2>
           <div class="muted small">${esc(artNames(t))}${range ? " · " + range : ""} · ${t.tage} ${t.tage === 1 ? "Tag" : "Tage"}${multi ? " · " + t.personen.length + " Personen" : ""}</div>
         </div>
-        <label class="field">Tripname<input data-bind="name" value="${esc(t.name)}" placeholder="z. B. Schottland 2027"></label>
         <div class="field"><span>Reiseart <span class="muted" style="font-weight:400">– kombinierbar</span></span>
           <div class="row" style="gap:.35rem">
             ${P.arten.map((a) => `<button class="chip ${t.arten.includes(a.id) ? "on" : ""}" data-act="toggle-art" data-id="${a.id}" aria-pressed="${t.arten.includes(a.id)}">${esc(a.name)}</button>`).join("")}
           </div>
         </div>
-        <div class="field">Reisezeitraum
-          <div class="date-row">
-            <input class="input" data-bind="von" value="${toDE(t.von)}" placeholder="TT.MM.JJJJ" inputmode="numeric" aria-label="Von">
-            <span class="muted">–</span>
-            <input class="input" data-bind="bis" value="${toDE(t.bis)}" placeholder="TT.MM.JJJJ" inputmode="numeric" aria-label="Bis">
-            <button class="btn cal-btn ${cal.open ? "on" : ""}" data-act="cal-toggle" title="Kalender öffnen" aria-label="Kalender öffnen" aria-expanded="${cal.open}">${ICON.calendar}</button>
-          </div>
-          ${cal.open ? renderCal(t) : ""}
-        </div>
-        <div class="trip-grid">
-          <label class="field">Tage<input type="number" min="1" max="60" data-bind="tage" value="${t.tage}"></label>
-          <label class="field">Teilnehmende<input type="number" min="1" max="12" data-bind="anzahl" value="${t.personen.length}"></label>
-        </div>
-        <div class="field"><span>Namen <span class="muted" style="font-weight:400">– optional</span></span>
-          <div class="names">
-            ${t.personen.map((p, i) => `<input class="input" data-pname="${p.id}" value="${esc(p.name)}" placeholder="Person ${i + 1}" maxlength="30" aria-label="Name Person ${i + 1}">`).join("")}
-          </div>
-        </div>
+        <button class="btn sm no-print" data-act="open-meta" style="align-self:flex-start">${ICON.edit} Zeitraum &amp; Teilnehmende bearbeiten</button>
         ${multi ? `<label class="field no-print">Ich bin
-          <select class="input" data-act="set-me"><option value="">– bitte wählen –</option>${t.personen.map((p) => `<option value="${p.id}" ${p.id === t.ich ? "selected" : ""}>${esc(pname(t, p))}</option>`).join("")}</select></label>` : ""}
+          <select class="input" data-act="set-me"><option value="">– bitte wählen –</option>${t.personen.map((p) => `<option value="${p.id}" ${p.id === myId(t) ? "selected" : ""}>${esc(pname(t, p))}</option>`).join("")}</select></label>` : ""}
         ${multi && !me ? `<div class="whoami no-print">Wähle bei „Ich bin“, wer du bist. Dann siehst du, was du selbst mitbringen musst.</div>` : ""}
-        <div class="row no-print">
-          <button class="btn sm" data-act="dup-trip">Duplizieren</button>
-          <button class="btn sm danger" data-act="del-trip">Trip löschen</button>
-        </div>
       </aside>
 
       <div class="stack">
@@ -408,11 +448,11 @@
       P.module.filter((m) => t.module.includes(m.id)).forEach((m) => groups.push({ name: m.name, modul: m.id, items: items.filter((i) => i.modul === m.id), all: tripItems(t).filter((i) => i.modul === m.id) }));
     }
     const html = groups.filter((g) => g.all.length || (state.edit && g.modul)).map((g) => {
-      const d = g.all.filter((i) => t.status[i.id] === "gepackt").length;
-      const s = g.all.filter((i) => t.status[i.id] === "weg").length;
+      const d = g.all.filter((i) => ST(t)[i.id] === "gepackt").length;
+      const s = g.all.filter((i) => ST(t)[i.id] === "weg").length;
       const n = g.all.length - s;
       let list = g.items;
-      if (state.ui.hidePacked) list = list.filter((i) => !t.status[i.id]);
+      if (state.ui.hidePacked) list = list.filter((i) => !ST(t)[i.id]);
       let rows = "", lastGrp = null;
       list.forEach((i) => {
         if (state.ui.groupBy === "modul" && i.gruppe && i.gruppe !== lastGrp) { rows += `<li class="subgroup">${esc(i.gruppe)}</li>`; lastGrp = i.gruppe; }
@@ -430,7 +470,7 @@
   }
 
   function itemRow(t, i) {
-    const st = t.status[i.id];
+    const st = ST(t)[i.id];
     const custom = t.menge[i.id] != null;
     const tags = tagsOf(t, i);
     const shared = tags.includes("gemeinsam");
@@ -496,9 +536,9 @@
       const removed = t.personen.slice(n).map((p) => p.id);
       t.personen = t.personen.slice(0, n);
       Object.keys(t.tags).forEach((k) => { t.tags[k] = t.tags[k].filter((x) => !removed.includes(x)); });
-      if (removed.includes(t.ich)) t.ich = n === 1 ? t.personen[0].id : null;
+      if (removed.includes(state.me[t.id])) setMe(t, n === 1 ? t.personen[0].id : null);
     }
-    if (n === 1) t.ich = t.personen[0].id;
+    if (n === 1) setMe(t, t.personen[0].id);
   }
 
   function onPackClick(e) {
@@ -506,8 +546,8 @@
     const t = trip(); const id = a.dataset.id; const act = a.dataset.act;
     if (a.tagName === "SELECT" || (a.tagName === "INPUT" && a.type !== "button")) return;
     switch (act) {
-      case "tick": if (t.status[id] === "gepackt") delete t.status[id]; else t.status[id] = "gepackt"; break;
-      case "skip": e.stopPropagation(); if (t.status[id] === "weg") delete t.status[id]; else t.status[id] = "weg"; break;
+      case "tick": if (ST(t)[id] === "gepackt") delete ST(t)[id]; else ST(t)[id] = "gepackt"; break;
+      case "skip": e.stopPropagation(); if (ST(t)[id] === "weg") delete ST(t)[id]; else ST(t)[id] = "weg"; break;
       case "tags": e.stopPropagation(); return openTags(id);
       case "qty": {
         e.stopPropagation();
@@ -540,7 +580,7 @@
         const [y, m] = (cal.month || todayISO().slice(0, 7)).split("-").map(Number);
         const d = new Date(y, m - 1 + (+a.dataset.d), 1);
         cal.month = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-        return renderPack();
+        return render();
       }
       case "cal-day": {
         const d = a.dataset.d;
@@ -554,14 +594,15 @@
         if (t.von && !t.bis) t.bis = addDays(t.von, t.tage - 1);
         break;
       case "brush": brush = id; break;
+      case "open-meta": state.ui.metaOpen = true; location.hash = "plan"; return;
       case "toggle-mod": t.module = t.module.includes(id) ? t.module.filter((m) => m !== id) : [...t.module, id]; break;
       case "group": state.ui.groupBy = id; break;
-      case "new-trip": return openNewTrip();
+      case "new-trip": return window.PL.openNewUrlaub ? window.PL.openNewUrlaub() : null;
       case "dup-trip": { const c = clone(t); c.id = uid(); c.name = tripName(t) + " (Kopie)"; c.status = {}; state.trips[c.id] = c; state.current = c.id; toast("Trip dupliziert – Haken sind zurückgesetzt."); break; }
       case "del-trip": if (!armed(a, "Wirklich löschen?")) return; delete state.trips[t.id]; state.current = null; toast("Trip gelöscht."); break;
-      case "reset": if (!armed(a, "Alle Haken entfernen?")) return; t.status = {}; toast("Alle Haken zurückgesetzt."); break;
+      case "reset": if (!armed(a, "Alle Haken entfernen?")) return; t.status[myId(t) || "_"] = {}; toast("Alle Haken zurückgesetzt."); break;
       case "print": doPrint(); return;
-      case "share": return openShare();
+      case "share": return window.PL.openInvite ? window.PL.openInvite(t) : null;
       case "add-item": return openItemEditor(null, a.dataset.mod);
       case "edit-item": e.stopPropagation(); return openItemEditor(id);
       case "add-mod": return askName("Neues Modul", "", (name) => {
@@ -579,11 +620,12 @@
     if (a.dataset.bind) {
       const k = a.dataset.bind;
       if (k === "name") t.name = a.value.trim();
+      if (k === "ziel") t.ziel = a.value.trim();
       if (k === "tage") { t.tage = Math.max(1, Math.min(60, parseInt(a.value) || 1)); if (t.von) t.bis = addDays(t.von, t.tage - 1); }
       if (k === "anzahl") setPersonCount(t, parseInt(a.value));
       if (k === "von" || k === "bis") {
         const v = parseDE(a.value);
-        if (v === null) { toast("Datum nicht erkannt – bitte als TT.MM.JJJJ eingeben."); return renderPack(); }
+        if (v === null) { toast("Datum nicht erkannt – bitte als TT.MM.JJJJ eingeben."); return render(); }
         if (k === "von") { const bis = t.bis && v && t.bis >= v ? t.bis : (v ? addDays(v, t.tage - 1) : t.bis); setRange(t, v, bis); }
         else setRange(t, t.von, v);
         if (t.von) cal.month = t.von.slice(0, 7);
@@ -592,7 +634,7 @@
     }
     switch (a.dataset.act) {
       case "switch-trip": state.current = a.value; state.ui.viewPerson = "alle"; cal.open = false; break;
-      case "set-me": t.ich = a.value || null; if (t.ich) state.ui.viewPerson = t.ich; break;
+      case "set-me": setMe(t, a.value || null); if (a.value) state.ui.viewPerson = a.value; break;
       case "view-person": state.ui.viewPerson = a.value; break;
       case "hide-packed": state.ui.hidePacked = a.checked; break;
       case "hide-opt": state.ui.hideOptional = a.checked; break;
@@ -605,7 +647,7 @@
     if (!cal.open || !document.body.contains(e.target)) return;
     if (e.target.closest(".cal, [data-act=cal-toggle], .date-row")) return;
     cal.open = false; const t = trip(); if (t.von && !t.bis) { t.bis = addDays(t.von, t.tage - 1); store.save(); }
-    if (state.ui.tab === "packliste") renderPack();
+    render();
   });
 
   function askName(title, value, cb) {
@@ -643,52 +685,11 @@
     });
   }
 
-  // ----- Teilen -----
-  const b64e = (o) => btoa(unescape(encodeURIComponent(JSON.stringify(o)))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-  const b64d = (s) => JSON.parse(decodeURIComponent(escape(atob(s.replace(/-/g, "+").replace(/_/g, "/")))));
-  function shareLink() {
-    const t = trip();
-    const payload = { id: t.id, name: t.name, arten: t.arten, von: t.von, bis: t.bis, tage: t.tage, tagArt: t.tagArt, personen: t.personen, module: t.module, tags: t.tags, menge: t.menge, essen: t.essen };
-    return location.href.split("#")[0] + "#trip=" + b64e(payload);
-  }
-  function openShare() {
-    const t = trip(); const link = shareLink();
-    const multi = t.personen.length > 1;
-    const unassigned = multi ? tripItems(t).filter((i) => isShared(t, i) && !bringers(t, i).length).length : 0;
-    const unnamed = t.personen.some((p) => !p.name);
-    openModal({
-      title: "Packliste teilen",
-      body: `<p class="muted">Der Link enthält Trip, Teilnehmende, Module, Tags und den Essensplan – aber nicht deine Haken. Die empfangende Person wählt „Ich bin …“ und sieht dann, was sie selbst mitbringen muss.</p>
-        ${unassigned ? `<p class="badge warn">${unassigned} gemeinsame Items haben noch keine Person, die sie mitbringt.</p>` : ""}
-        ${!multi ? `<p class="hint">Tipp: Erst die Anzahl der Teilnehmenden erhöhen und gemeinsame Items per Tag einer Person zuweisen.</p>` : ""}
-        ${multi && unnamed ? `<p class="hint">Tipp: Mit Namen statt „Person 1/2“ ist die Liste für die anderen leichter zu lesen.</p>` : ""}
-        <label class="field">Link<textarea class="export-text" style="min-height:90px" readonly>${esc(link)}</textarea></label>
-        <p class="hint">Eigene Änderungen an Items (Bearbeiten-Modus) stecken nicht im Link – dafür die Stammdaten exportieren und ins Repo übernehmen.</p>`,
-      foot: `<button class="btn" data-close>Schließen</button><button class="btn primary" data-copy>Link kopieren</button>`,
-      onMount: (m) => $("[data-copy]", m).addEventListener("click", () => copyText(link, "Link kopiert."))
-    });
-  }
+  // ----- Kopieren -----
   async function copyText(text, ok) {
     try { await navigator.clipboard.writeText(text); toast(ok); }
     catch { const ta = $("#modalRoot textarea"); if (ta) ta.select(); toast("Kopieren nicht erlaubt – Text ist markiert, bitte Strg/Cmd + C."); }
   }
-  function importShared() {
-    const m = location.hash.match(/^#trip=([\w-]+)/);
-    if (!m) return false;
-    try {
-      const s = migrate(b64d(m[1]));
-      const existing = state.trips[s.id];
-      const t = Object.assign(newTrip(s.arten), existing || {}, s, {
-        status: existing ? existing.status : {},
-        ich: existing && s.personen.find((p) => p.id === existing.ich) ? existing.ich : (s.personen.length === 1 ? s.personen[0].id : null)
-      });
-      state.trips[t.id] = t; state.current = t.id; state.ui.viewPerson = t.ich || "alle";
-      setTimeout(() => toast(`Geteilter Trip „${tripName(t)}“ geladen.`), 300);
-    } catch { setTimeout(() => toast("Der geteilte Link ist leider ungültig."), 300); }
-    history.replaceState(null, "", location.pathname + location.search + "#packliste");
-    return true;
-  }
-
   function doPrint() {
     try { window.print(); } catch { toast("Drucken ist hier blockiert – öffne die Seite direkt im Browser."); }
   }
@@ -1393,23 +1394,34 @@
   // =========================================================
   //  ROUTING & RENDER
   // =========================================================
-  const TABS = ["packliste", "essen", "rezepte"];
+  const TABS = ["urlaube", "plan", "unterwegs", "kosten", "packliste", "essen", "rezepte", "einstellungen"];
+  const TRIP_TABS = ["plan", "unterwegs", "kosten", "packliste", "essen"];
+  const TITLES = { urlaube: "Urlaube", plan: "Planung", unterwegs: "Unterwegs", kosten: "Kosten", packliste: "Packliste", essen: "Essensplaner", rezepte: "Wandergerichte", einstellungen: "Einstellungen" };
   function route() {
     const h = location.hash.replace("#", "");
     if (TABS.includes(h)) state.ui.tab = h;
     render();
   }
   function render() {
-    const tab = state.ui.tab;
-    TABS.forEach((t) => { $("#view-" + t).hidden = t !== tab; });
-    $$(".tabs a").forEach((a) => a.classList.toggle("active", a.dataset.tab === tab));
-    document.title = (tab === "packliste" ? "Packliste" : tab === "essen" ? "Essensplaner" : "Wandergerichte") + " · " + tripName(trip());
+    let tab = state.ui.tab;
+    const t = trip();
+    if (TRIP_TABS.includes(tab) && !t) tab = "urlaube";
+    TABS.forEach((x) => { const v = $("#view-" + x); if (v) v.hidden = x !== tab; });
+    $$(".tabs a").forEach((a) => {
+      a.classList.toggle("active", a.dataset.tab === tab);
+      if (TRIP_TABS.includes(a.dataset.tab)) a.classList.toggle("disabled", !t);
+    });
+    document.title = TITLES[tab] + (t && TRIP_TABS.includes(tab) ? " · " + tripName(t) : "") + " · Urlaubsplanung";
     renderBanner();
+    if (window.PL.renderHeader) window.PL.renderHeader();
     if (tab === "packliste") renderPack();
-    if (tab === "essen") renderEssen();
-    if (tab === "rezepte") renderRezepte();
+    else if (tab === "essen") renderEssen();
+    else if (tab === "rezepte") renderRezepte();
+    else if (window.PL.views && window.PL.views[tab]) window.PL.views[tab]();
   }
-  function commit() { store.save(); render(); }
+  function commit() { store.save(); render(); if (window.PL.afterCommit) window.PL.afterCommit(); }
+  // speichern ohne neu zu zeichnen (z. B. beim Tippen in Tabellenzellen)
+  function save() { store.save(); if (window.PL.afterCommit) window.PL.afterCommit(); }
 
   // Ereignisse (Delegation)
   const vp = $("#view-packliste"), ve = $("#view-essen"), vr = $("#view-rezepte");
@@ -1423,7 +1435,7 @@
     const cell = document.elementFromPoint(x, y)?.closest(".days.paintable .day-cell"); if (!cell) return;
     const t = trip(); const i = +cell.dataset.day;
     const arr = dayArts(t); if (arr[i] === brush) return;
-    arr[i] = brush; t.tagArt = arr;
+    arr[i] = brush; t.tagArt = arr; t.tagArtManual = true;
     cell.className = "day-cell art-" + brush;
   }
   vp.addEventListener("pointerdown", (e) => {
@@ -1439,13 +1451,24 @@
   vr.addEventListener("click", onRezClick);
   vr.addEventListener("input", onRezInput);
   vr.addEventListener("toggle", (e) => { if (e.target.classList && e.target.classList.contains("mug-tips")) { state.ui.tipsOpen = e.target.open; store.save(); } }, true);
-  window.addEventListener("hashchange", () => { if (importShared()) render(); else route(); });
+  window.addEventListener("hashchange", () => { if (window.PL.handleHash && window.PL.handleHash()) return; route(); });
 
-  // Start
-  importShared();
-  if (!TABS.includes(location.hash.replace("#", ""))) {
-    try { history.replaceState(null, "", location.pathname + location.search + "#" + state.ui.tab); } catch { /* egal */ }
-  }
-  route();
-  store.save();
+  // Schnittstelle für die Urlaubsplanung (js/urlaub.js)
+  Object.assign(window.PL, {
+    core: { state, store, $, $$, esc, uid, clone, slug, fmtDate, addDays, dayDiff, ICON, PACK, REZ, trip, tripName, person, pname, artNames,
+      myId, setMe, ST, toast, openModal, closeModal, armed, askName, copyText, commit, save, render, route, doPrint,
+      cal, renderCal, parseDE, toDE, setRange, setPersonCount, todayISO, presetModules, newTrip, migrate, metaFields,
+      onPackClick, onPackChange, tripItems, qtyOf, tagsOf, essen, rez, zut, recipeInfo, MEAL_LABEL, fmtG, daysPer, dayArts, wanderTage, TABS }
+  });
+
+  // Start, sobald alle Skripte geladen sind
+  window.addEventListener("DOMContentLoaded", () => {
+    if (window.PL.init) window.PL.init();
+    const h = location.hash.replace("#", "");
+    if (!TABS.includes(h) && !(window.PL.handleHash && window.PL.handleHash())) {
+      try { history.replaceState(null, "", location.pathname + location.search + "#" + state.ui.tab); } catch { /* egal */ }
+    }
+    route();
+    store.save();
+  });
 })();
