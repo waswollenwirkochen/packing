@@ -128,6 +128,10 @@
     }
     return state.current ? state.trips[state.current] : null;
   }
+  // Reise liegt in der Vergangenheit (auch ohne genaues Datum)
+  const isPast = (t, today = todayISO2()) => (t.bis ? t.bis < today : !!t.vergangen);
+  function todayISO2() { return new Date(Date.now() - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 10); }
+  const sortKey = (t) => t.von || (t.jahr ? t.jahr + "-00-00" : "0000");
   const tripName = (t) => (t.name || "").trim() || (t.ziel || "").trim() || "Unbenannter Urlaub";
   // wer bin ich in diesem Urlaub (nur auf diesem Gerät gespeichert)
   const myId = (t) => (state.me[t.id] && t.personen.some((p) => p.id === state.me[t.id]) ? state.me[t.id] : (t.personen.length === 1 ? t.personen[0].id : null));
@@ -308,6 +312,7 @@
 
   // Bearbeitbare Eckdaten eines Urlaubs (Name, Ziel, Reiseart, Zeitraum, Teilnehmende)
   function metaFields(t) {
+    const P = PACK();
     return `<div class="meta-grid">
         <label class="field m-name">Name des Urlaubs<input data-bind="name" value="${esc(t.name)}" placeholder="z. B. Roadtrip Alpen 2027"></label>
         <label class="field m-ziel">Wo geht’s hin?<input data-bind="ziel" value="${esc(t.ziel || "")}" placeholder="z. B. Queyras, Lyon, Genua"></label>
@@ -325,6 +330,9 @@
           </div>
           ${cal.open ? renderCal(t) : ""}
         </div>
+        ${!t.von ? `<div class="field m-past"><span>Ohne genaues Datum</span>
+          <div class="row" style="gap:.6rem"><label class="check"><input type="checkbox" data-bind="vergangen" ${t.vergangen ? "checked" : ""}> schon gemacht</label>
+          <input class="input" data-bind="jahr" value="${esc(t.jahr || "")}" placeholder="Jahr, z. B. 2019" style="width:9em"></div></div>` : ""}
         <div class="trip-grid m-count">
           <label class="field">Tage<input type="number" min="1" max="60" data-bind="tage" value="${t.tage}"></label>
           <label class="field">Teilnehmende<input type="number" min="1" max="12" data-bind="anzahl" value="${t.personen.length}"></label>
@@ -624,6 +632,8 @@
       const k = a.dataset.bind;
       if (k === "name") t.name = a.value.trim();
       if (k === "ziel") t.ziel = a.value.trim();
+      if (k === "vergangen") t.vergangen = a.checked;
+      if (k === "jahr") t.jahr = a.value.trim();
       if (k === "tage") { t.tage = Math.max(1, Math.min(60, parseInt(a.value) || 1)); if (t.von) t.bis = addDays(t.von, t.tage - 1); }
       if (k === "anzahl") setPersonCount(t, parseInt(a.value));
       if (k === "von" || k === "bis") {
@@ -1459,7 +1469,7 @@
   // Schnittstelle für die Urlaubsplanung (js/urlaub.js)
   Object.assign(window.PL, {
     core: { state, store, $, $$, esc, uid, clone, slug, fmtDate, addDays, dayDiff, ICON, PACK, REZ, trip, tripName, person, pname, artNames,
-      myId, setMe, ST, toast, openModal, closeModal, armed, askName, copyText, commit, save, render, route, doPrint,
+      myId, setMe, ST, isPast, sortKey, toast, openModal, closeModal, armed, askName, copyText, commit, save, render, route, doPrint,
       cal, renderCal, parseDE, toDE, setRange, setPersonCount, todayISO, presetModules, newTrip, migrate, metaFields,
       onPackClick, onPackChange, tripItems, qtyOf, tagsOf, essen, rez, zut, recipeInfo, MEAL_LABEL, fmtG, daysPer, dayArts, wanderTage, TABS }
   });

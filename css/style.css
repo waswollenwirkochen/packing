@@ -718,3 +718,4 @@ blockquote cite { display: block; font-size: .8rem; color: var(--ink-3); font-st
   .karte-map { height: 55vh; order: -1; }
   .karte-side { max-height: none; }
 }
+.meta-grid .m-past { grid-column: span 2; }

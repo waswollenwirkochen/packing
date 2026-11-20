@@ -323,11 +323,11 @@
     const el = $("#view-urlaube");
     const list = Object.values(state.trips);
     const today = C.todayISO();
-    const upcoming = list.filter((t) => !t.bis || t.bis >= today).sort((a, b) => (a.von || "9999").localeCompare(b.von || "9999"));
-    const past = list.filter((t) => t.bis && t.bis < today).sort((a, b) => b.von.localeCompare(a.von));
+    const upcoming = list.filter((t) => !C.isPast(t, today)).sort((a, b) => (a.von || "9999").localeCompare(b.von || "9999"));
+    const past = list.filter((t) => C.isPast(t, today)).sort((a, b) => C.sortKey(b).localeCompare(C.sortKey(a)));
     const card = (t) => {
       const d = daysUntil(t.von), running = t.von && t.von <= today && t.bis >= today;
-      const when = !t.von ? `${t.tage} Tage · Datum offen` : `${fmtDate(t.von, { day: "numeric", month: "short" })} – ${fmtDate(t.bis, { day: "numeric", month: "short", year: "numeric" })} · ${t.tage} Tage`;
+      const when = !t.von ? (t.vergangen ? (t.jahr ? t.jahr : "Datum unbekannt") : `${t.tage} Tage · Datum offen`) : `${fmtDate(t.von, { day: "numeric", month: "short" })} – ${fmtDate(t.bis, { day: "numeric", month: "short", year: "numeric" })} · ${t.tage} Tage`;
       const countdown = running ? `<span class="countdown live">läuft gerade · Tag ${C.dayDiff(t.von, today) + 1}</span>` : d > 0 ? `<span class="countdown">in ${d} ${d === 1 ? "Tag" : "Tagen"}</span>` : "";
       const people = t.personen.map((p) => pname(t, p)).join(", ");
       return `<button class="card trip-tile" data-open="${t.id}">
@@ -346,7 +346,7 @@
         </div>
         <div class="row">
           <button class="btn primary" data-act="new">${ICON.plus} Neuer Urlaub</button>
-          <label class="btn">${ICONS.excel} Aus Excel importieren<input type="file" accept=".xlsx" data-act="import" hidden></label>
+          <label class="btn" title="Excel-Tabelle (.xlsx) oder Reisen-/Sicherungsdatei (.json)">${ICONS.excel} Importieren<input type="file" accept=".xlsx,.json" data-act="import" hidden></label>
         </div>
       </div>
       ${!state.syncCfg && S.available ? `<div class="card card-pad hint-card"><b>Noch nicht synchronisiert.</b> Deine Urlaube liegen nur in diesem Browser. Richte das verschlüsselte Daten-Repo ein, um Urlaube mit anderen zu teilen und auf mehreren Geräten zu nutzen. <a href="#einstellungen">Jetzt einrichten →</a></div>` : ""}
@@ -448,7 +448,7 @@
         <div class="row plan-title">
           <div style="min-width:0">
             <h2>${esc(tripName(t))}</h2>
-            <div class="muted small">${t.ziel && t.name ? esc(t.ziel) + " · " : ""}${t.von ? fmtDate(t.von, { day: "numeric", month: "short" }) + " – " + fmtDate(t.bis, { day: "numeric", month: "short", year: "numeric" }) : "Datum offen"} · ${t.personen.map((p) => esc(pname(t, p))).join(", ")}</div>
+            <div class="muted small">${t.ziel && t.name ? esc(t.ziel) + " · " : ""}${t.von ? fmtDate(t.von, { day: "numeric", month: "short" }) + " – " + fmtDate(t.bis, { day: "numeric", month: "short", year: "numeric" }) : t.jahr || (t.vergangen ? "Datum unbekannt" : "Datum offen")} · ${t.personen.map((p) => esc(pname(t, p))).join(", ")}</div>
           </div>
           <span class="spacer"></span>
           ${tripBadge(t)}
@@ -1047,17 +1047,23 @@
   }
   function onSettingsChange(e) {
     const a = e.target.closest("[data-act=restore]"); if (!a || !a.files[0]) return;
+    restoreFile(a.files[0]); a.value = "";
+  }
+  // Reisen aus einer Sicherungs-/Importdatei übernehmen (gleiche Urlaub-ID = wird ersetzt)
+  function restoreFile(file) {
     const rd = new FileReader();
     rd.onload = () => {
       try {
         const d = JSON.parse(rd.result);
-        Object.entries(d.trips || {}).forEach(([id, t]) => { state.trips[id] = C.migrate(t); });
+        const n = Object.keys(d.trips || {}).length;
+        if (!n) throw new Error();
         Object.assign(state.me, d.me || {});
         Object.entries(d.keys || {}).forEach(([id, k]) => { if (!state.keys[id]) state.keys[id] = k; });
-        C.commit(); toast("Sicherung eingespielt."); syncAll();
+        Object.entries(d.trips || {}).forEach(([id, t]) => { state.trips[id] = C.migrate(t); ensurePlan(state.trips[id]); });
+        C.commit(); toast(`${n} ${n === 1 ? "Reise" : "Reisen"} übernommen.`); syncAll();
       } catch { toast("Datei nicht erkannt."); }
     };
-    rd.readAsText(a.files[0]);
+    rd.readAsText(file);
   }
 
   // =========================================================
@@ -1266,7 +1272,11 @@
     Object.values(state.trips).forEach(ensurePlan);
     const on = (id, ev, fn) => { const el = $("#view-" + id); if (el) el.addEventListener(ev, fn); };
     on("urlaube", "click", onUrlaubeClick);
-    on("urlaube", "change", (e) => { const f = e.target.closest("[data-act=import]"); if (f && f.files[0]) importExcel(f.files[0]); f && (f.value = ""); });
+    on("urlaube", "change", (e) => {
+      const f = e.target.closest("[data-act=import]"); if (!f || !f.files[0]) return;
+      const file = f.files[0]; f.value = "";
+      if (/\.json$/i.test(file.name)) restoreFile(file); else importExcel(file);
+    });
     on("plan", "click", onPlanClick);
     on("plan", "change", onPlanChange);
     on("plan", "keydown", onPlanKey);

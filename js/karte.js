@@ -362,10 +362,10 @@
   function listHtml() {
     const all = Object.values(state.trips);
     const today = C.todayISO(); const f = state.ui.mapFilter || "alle"; const q = (state.ui.mapQ || "").toLowerCase();
-    const list = all.filter((t) => (f === "alle" || (f === "vergangen" ? t.bis && t.bis < today : !t.bis || t.bis >= today)) && (!q || (tripName(t) + " " + (t.ziel || "")).toLowerCase().includes(q)))
-      .sort((a, b) => (b.von || "0").localeCompare(a.von || "0"));
-    const done = all.filter((t) => t.bis && t.bis < today);
-    const tot = done.reduce((a, t) => { const s = tripStats(t); a.tage += t.tage; a.km += s.wKm; a.hm += s.hoch; a.orte += s.orte; return a; }, { tage: 0, km: 0, hm: 0, orte: 0 });
+    const list = all.filter((t) => (f === "alle" || (f === "vergangen" ? C.isPast(t, today) : !C.isPast(t, today))) && (!q || (tripName(t) + " " + (t.ziel || "")).toLowerCase().includes(q)))
+      .sort((a, b) => C.sortKey(b).localeCompare(C.sortKey(a)));
+    const done = all.filter((t) => C.isPast(t, today));
+    const tot = done.reduce((a, t) => { const s = tripStats(t); if (t.von) a.tage += t.tage; a.km += s.wKm; a.hm += s.hoch; a.orte += s.orte; return a; }, { tage: 0, km: 0, hm: 0, orte: 0 });
     return `<div class="side-head"><h2>Unsere Reisen</h2>
         <div class="tot-grid">
           <div><b>${done.length}</b><span>Reisen</span></div><div><b>${U.fmtNum(tot.tage)}</b><span>Tage unterwegs</span></div>
@@ -379,7 +379,7 @@
       <ul class="trip-list">${list.map((t) => {
         const s = tripStats(t), r = reviewAvg(t);
         return `<li><button data-mtrip="${t.id}"><span class="dot-c" style="background:${colorOf(t)}"></span>
-          <span class="tl-main"><b>${esc(tripName(t))}</b><small>${t.von ? fmtDate(t.von, { month: "short", year: "numeric" }) + " · " : ""}${t.tage} Tage${s.wKm ? " · " + U.fmtNum(s.wKm, 0) + " km" : ""}${s.hoch ? " · ↑ " + U.fmtNum(s.hoch) + " m" : ""}</small>
+          <span class="tl-main"><b>${esc(tripName(t))}</b><small>${t.von ? fmtDate(t.von, { month: "short", year: "numeric" }) + " · " + t.tage + " Tage" : t.jahr || (t.vergangen ? "Datum unbekannt" : t.tage + " Tage")}${s.wKm ? " · " + U.fmtNum(s.wKm, 0) + " km" : ""}${s.hoch ? " · ↑ " + U.fmtNum(s.hoch) + " m" : ""}</small>
           ${!s.orte ? `<small class="warn-txt">noch keine Route</small>` : ""}</span>
           ${r ? stars(r) : ""}</button></li>`;
       }).join("") || `<li class="muted small" style="padding:1rem">Keine Reisen gefunden.</li>`}</ul>
@@ -391,7 +391,7 @@
     return `<div class="side-head">
         <button class="btn sm ghost" data-mback>${I.back} Alle Reisen</button>
         <h2><span class="dot-c" style="background:${colorOf(t)}"></span>${esc(tripName(t))}</h2>
-        <div class="small muted">${t.ziel && t.name ? esc(t.ziel) + " · " : ""}${t.von ? fmtDate(t.von, { day: "numeric", month: "short" }) + " – " + fmtDate(t.bis, { day: "numeric", month: "short", year: "numeric" }) : "Datum offen"} · ${t.personen.map((p) => esc(pname(t, p))).join(", ")}</div>
+        <div class="small muted">${t.ziel && t.name ? esc(t.ziel) + " · " : ""}${t.von ? fmtDate(t.von, { day: "numeric", month: "short" }) + " – " + fmtDate(t.bis, { day: "numeric", month: "short", year: "numeric" }) : t.jahr || (t.vergangen ? "Datum unbekannt" : "Datum offen")} · ${t.personen.map((p) => esc(pname(t, p))).join(", ")}</div>
         <div class="seg side-tabs">${tabs.map(([k, l]) => `<button data-mdetail="${k}" class="${tab === k ? "on" : ""}">${l}</button>`).join("")}</div>
       </div>
       <div class="side-body">${tab === "route" ? routeHtml(t) : tab === "fotos" ? fotosHtml(t) : tab === "review" ? reviewHtml(t) : overviewHtml(t)}</div>`;
@@ -402,7 +402,7 @@
     const hl = Object.entries(t.reviews || {}).map(([pid, x]) => x.highlight && `<blockquote>„${esc(x.highlight)}“<cite>– ${esc(pname(t, person(t, pid)) || "")}</cite></blockquote>`).filter(Boolean);
     const fotos = (t.fotos || []).slice(-6).reverse();
     return `<div class="kpis-side">
-        ${kpi(t.tage, "Tage")}${kpi(s.naechte && s.orte ? s.orte : 0, "Orte")}${kpi(s.wTage, "Wandertage")}${kpi(s.wKm ? U.fmtNum(s.wKm, 1) + " km" : 0, "zu Fuß")}
+        ${kpi(t.von ? t.tage : 0, "Tage")}${kpi(s.naechte && s.orte ? s.orte : 0, "Orte")}${kpi(s.wTage, "Wandertage")}${kpi(s.wKm ? U.fmtNum(s.wKm, 1) + " km" : 0, "zu Fuß")}
         ${kpi(s.wMin ? U.fmtDur(s.wMin) : 0, "Gehzeit")}${kpi(s.hoch ? U.fmtNum(s.hoch) + " m" : 0, "Aufstieg")}${kpi(s.runter ? U.fmtNum(s.runter) + " m" : 0, "Abstieg")}
         ${kpi(s.fKm ? U.fmtNum(s.fKm) + " km" : 0, "Fahrstrecke")}${kpi(s.kosten ? U.money(t, s.kosten) : 0, "Kosten")}
       </div>
