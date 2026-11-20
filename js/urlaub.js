@@ -22,6 +22,8 @@
 
   const TYPEN = [
     { id: "", name: "–" },
+    { id: "anreise", name: "Anreise" },
+    { id: "abreise", name: "Abreise" },
     { id: "fahrt", name: "Fahrtag" },
     { id: "wandern", name: "Wanderung" },
     { id: "stadt", name: "Stadt" },
@@ -135,7 +137,7 @@
     try { ring = await S.decJSON(cfg.mk, wrap.data); } catch { throw new Error("Passwort passt nicht zum Schlüsselbund im Daten-Repo."); }
     cfg.ringSha = f.sha;
     Object.entries(ring.trips || {}).forEach(([id, e]) => {
-      if ((ring.deleted || []).includes(id)) return;
+      if ((ring.deleted || []).includes(id) || state.deleted.includes(id)) return;
       if (!state.keys[id]) state.keys[id] = { k: e.k, owner: true };
     });
     (ring.deleted || []).forEach((id) => {
@@ -160,14 +162,51 @@
     }
   }
 
+  // ---------- Dateien (verschlüsselte Blobs: Tickets, Fotos, GPX) ----------
+  const tripKey = (t) => state.keys[t.id] && state.keys[t.id].k;
+  async function putBlob(t, fid, bytes) {
+    const key = tripKey(t); if (!key) throw new Error("Für diesen Urlaub fehlt der Schlüssel.");
+    const enc = await S.encBytes(key, bytes);
+    await S.cachePut(`${t.id}/${fid}`, enc);
+    offlineState[fid] = true;
+    state.pendingUploads ||= [];
+    state.pendingUploads.push({ trip: t.id, fid });
+    return enc.length;
+  }
+  async function getBlob(t, fid) {
+    let bytes = await S.cacheGet(`${t.id}/${fid}`);
+    if (!bytes) {
+      const cfg = cfgFor(t.id);
+      if (!cfg || !online()) throw new Error("Datei ist noch nicht auf diesem Gerät gespeichert und gerade nicht erreichbar.");
+      bytes = await S.getRawBytes(cfg, `files/${t.id}/${fid}.enc`);
+      if (!bytes) throw new Error("Datei noch nicht verfügbar – sie wird evtl. gerade noch hochgeladen.");
+      await S.cachePut(`${t.id}/${fid}`, bytes);
+    }
+    offlineState[fid] = true;
+    return S.decBytes(tripKey(t), bytes);
+  }
+  function dropBlob(t, fid) {
+    S.cacheDel(`${t.id}/${fid}`); delete offlineState[fid];
+    const wasPending = (state.pendingUploads || []).some((p) => p.trip === t.id && p.fid === fid);
+    state.pendingUploads = (state.pendingUploads || []).filter((p) => !(p.trip === t.id && p.fid === fid));
+    const cfg = cfgFor(t.id);
+    if (cfg && !wasPending) { state.fileDeletes ||= []; state.fileDeletes.push({ cfg, path: `files/${t.id}/${fid}.enc` }); }
+  }
   async function uploadFiles(t) {
-    const key = state.keys[t.id] && state.keys[t.id].k, cfg = cfgFor(t.id); if (!cfg || !key) return;
-    for (const f of t.tickets || []) {
-      if (f.up) continue;
-      const bytes = await S.cacheGet(`${t.id}/${f.id}`);
-      if (!bytes) continue;
-      await S.putFile(cfg, `files/${t.id}/${f.id}.enc`, S.bytesToB64(bytes), null, "Datei hinzugefügt");
-      f.up = true;
+    const cfg = cfgFor(t.id); if (!cfg) return;
+    state.pendingUploads ||= [];
+    for (const f of t.tickets || []) { // ältere Tickets
+      if (f.up === false && !state.pendingUploads.some((p) => p.fid === f.id)) state.pendingUploads.push({ trip: t.id, fid: f.id });
+      if (f.up === false) delete f.up;
+    }
+    for (const p of state.pendingUploads.filter((x) => x.trip === t.id)) {
+      const bytes = await S.cacheGet(`${t.id}/${p.fid}`);
+      if (bytes) {
+        try { await S.putFile(cfg, `files/${t.id}/${p.fid}.enc`, S.bytesToB64(bytes), null, "Datei hinzugefügt"); }
+        catch (e) { if (e.status !== 422) throw e; } // existiert schon
+      }
+      state.pendingUploads = state.pendingUploads.filter((x) => x !== p);
+      C.store.save();
     }
   }
   async function processDeletes() {
@@ -231,20 +270,20 @@
   // Dateien eines Urlaubs im Hintergrund offline verfügbar machen
   let prefetching = false;
   async function prefetchFiles() {
-    const t = trip(); if (!t || prefetching || !online()) return;
-    const cfg = cfgFor(t.id); if (!cfg) return;
+    const t = trip(); if (!t || prefetching || !online() || !cfgFor(t.id)) return;
     prefetching = true;
+    const want = [...(t.tickets || []).map((f) => f.id), ...(t.fotos || []).map((f) => f.id + "_t")];
+    let got = 0;
     try {
-      for (const f of t.tickets || []) {
-        if (!f.up) continue;
-        const k = `${t.id}/${f.id}`;
-        if (await S.cacheGet(k)) continue;
-        const bytes = await S.getRawBytes(cfg, `files/${t.id}/${f.id}.enc`);
-        if (bytes) await S.cachePut(k, bytes);
+      for (const fid of want) {
+        const k = `${t.id}/${fid}`;
+        if (await S.cacheGet(k)) { offlineState[fid] = true; continue; }
+        const bytes = await S.getRawBytes(cfgFor(t.id), `files/${t.id}/${fid}.enc`);
+        if (bytes) { await S.cachePut(k, bytes); offlineState[fid] = true; got++; }
       }
     } catch (e) { console.warn(e); }
     prefetching = false;
-    if (state.ui.tab === "unterwegs") C.render();
+    if (got && ["unterwegs", "karte"].includes(state.ui.tab)) C.render();
   }
 
   // =========================================================
@@ -374,7 +413,7 @@
       wMin: w.reduce((s, r) => s + durMin(r.dauer), 0),
       hoch: rows.reduce((s, r) => s + num(r.hoch), 0),
       runter: rows.reduce((s, r) => s + num(r.runter), 0),
-      fKm: rows.filter((r) => r.typ === "fahrt").reduce((s, r) => s + num(r.km), 0),
+      fKm: rows.filter((r) => ["fahrt", "anreise", "abreise"].includes(r.typ)).reduce((s, r) => s + num(r.km), 0),
       kosten: (t.kosten || []).reduce((s, k) => s + num(k.betrag), 0),
       files: (t.tickets || []).length
     };
@@ -415,6 +454,7 @@
           ${tripBadge(t)}
           <button class="btn sm" data-act="invite">${ICONS.users} Einladen</button>
           <button class="btn sm" data-act="export">${ICONS.excel} Excel</button>
+          <button class="btn sm" data-act="map">${ICONS.map} Karte</button>
           <button class="btn sm ghost" data-act="toggle-meta" aria-expanded="${!!state.ui.metaOpen}">${ICON.edit} Eckdaten</button>
         </div>
         ${state.ui.metaOpen || !t.von ? `<div class="meta-box">${C.metaFields(t)}
@@ -430,7 +470,7 @@
         const out = i >= t.tage;
         // auf dem Handy nur das Wichtigste – der Rest steckt in „Details“ (oder erscheint, sobald ausgefüllt)
         const show = (k) => String(r[k] ?? "").trim() !== "" || ["titel", "von", "nach", "unterkunft"].includes(k)
-          || (["km", "dauer"].includes(k) && (r.typ === "wandern" || r.typ === "fahrt")) || (["hoch", "runter"].includes(k) && r.typ === "wandern");
+          || (["km", "dauer"].includes(k) && (r.typ === "wandern" || ["fahrt", "anreise", "abreise"].includes(r.typ))) || (["hoch", "runter"].includes(k) && r.typ === "wandern");
         return `<div class="card day-card typ-${r.typ || "none"} ${out ? "out" : ""}" data-row="${r.id}">
           <div class="dc-head">
             <div><b>${out ? "nach Reiseende" : esc(dayLabel(t, i))}</b><small>Tag ${i + 1}</small></div>
@@ -486,6 +526,7 @@
       case "delrow": t.plan = t.plan.filter((r) => r.id !== a.dataset.id); return C.commit();
       case "invite": return openInvite(t);
       case "export": return exportExcel(t);
+      case "map": state.ui.mapTrip = t.id; state.ui.mapDetail = "route"; C.store.save(); location.hash = "karte"; return;
       case "print": return C.doPrint();
       case "dup": {
         const c = clone(t); c.id = uid() + uid(); c.name = tripName(t) + " (Kopie)"; c.status = {}; c.tickets = [];
@@ -555,7 +596,8 @@
         <label class="field c6">Sonstiges<textarea name="sonstiges" rows="2">${esc(r.sonstiges || "")}</textarea></label>
       </form>
       <h4 class="form-sub" style="margin-top:1rem">Tickets & Unterlagen für diesen Tag</h4>
-      <div id="dayFiles">${filesHtml(t, rid)}</div>`,
+      <div id="dayFiles" data-drop="${rid}">${filesHtml(t, rid)}</div>
+      ${PL.gpx ? `<h4 class="form-sub" style="margin-top:1rem">GPX-Track (z. B. aus Outdooractive)</h4><div id="dayGpx">${PL.gpx.rowHtml(t, rid)}</div>` : ""}`,
       foot: `<button class="btn" data-close>Abbrechen</button><button class="btn primary" form="dayForm">Speichern</button>`,
       onMount: (m) => {
         $("#dayForm", m).addEventListener("submit", (e) => {
@@ -563,7 +605,11 @@
           ["typ", ...FIELDS.map((x) => x.k)].forEach((k) => { const v = (f[k].value || "").trim(); if (v) r[k] = v; else delete r[k]; });
           closeModal(); C.commit();
         });
-        bindFiles(m, t, rid, () => { $("#dayFiles", m).innerHTML = filesHtml(t, rid); });
+        bindFiles($("#dayFiles", m), t, rid, () => { $("#dayFiles", m).innerHTML = filesHtml(t, rid); });
+        if (PL.gpx) PL.gpx.bindRow($("#dayGpx", m), t, rid, () => {
+          $("#dayGpx", m).innerHTML = PL.gpx.rowHtml(t, rid);
+          ["km", "dauer", "hoch", "runter"].forEach((k) => { const f = $("#dayForm", m)[k]; if (f && !f.value && r[k]) f.value = r[k]; });
+        });
       }
     });
   }
@@ -576,14 +622,14 @@
   async function refreshOffline(t) {
     for (const f of t.tickets || []) offlineState[f.id] = !!(await S.cacheGet(`${t.id}/${f.id}`));
   }
-  function filesHtml(t, tag) {
-    const list = (t.tickets || []).filter((f) => tag === undefined || (f.tag || "") === tag);
-    return `<ul class="files">${list.map((f) => `<li>
-        <button class="file-open" data-fopen="${f.id}">${ICONS.file}<span><b>${esc(f.name)}</b><small>${fmtSize(f.size || 0)}${f.notiz ? " · " + esc(f.notiz) : ""}${offlineState[f.id] ? " · offline verfügbar" : f.up ? "" : " · wird hochgeladen …"}</small></span></button>
-        <button class="icon-btn" data-fdel="${f.id}" title="Löschen" aria-label="${esc(f.name)} löschen">${ICONS.trash}</button>
-      </li>`).join("") || `<li class="muted small">Noch keine Unterlagen.</li>`}</ul>
-      <label class="btn sm">${ICON.plus} Ticket / Datei hinzufügen<input type="file" data-fadd="${tag ?? ""}" multiple hidden></label>
-      <p class="hint" style="margin-top:.5rem">Dateien werden im Browser verschlüsselt, bevor sie hochgeladen werden, und auf diesem Gerät auch offline gespeichert. Max. 25 MB pro Datei.</p>`;
+  const fileLi = (f) => `<li draggable="true" data-fid="${f.id}" title="Zum Verschieben auf einen anderen Tag ziehen">
+      <button class="file-open" data-fopen="${f.id}">${ICONS.file}<span><b>${esc(f.name)}</b><small>${fmtSize(f.size || 0)}${f.notiz ? " · " + esc(f.notiz) : ""}${offlineState[f.id] ? " · offline verfügbar" : ""}</small></span></button>
+      <button class="icon-btn" data-fdel="${f.id}" title="Löschen" aria-label="${esc(f.name)} löschen">${ICONS.trash}</button>
+    </li>`;
+  function filesHtml(t, tag, opts = {}) {
+    const list = (t.tickets || []).filter((f) => (f.tag || "") === tag);
+    return `<ul class="files">${list.map(fileLi).join("") || (opts.quiet ? "" : `<li class="muted small drop-hint">Noch keine Unterlagen – Datei hierher ziehen oder hinzufügen.</li>`)}</ul>
+      <label class="btn sm">${ICON.plus} Ticket / Datei<input type="file" data-fadd="${tag}" multiple hidden></label>`;
   }
   function bindFiles(root, t, tag, refresh) {
     root.addEventListener("change", async (e) => {
@@ -600,109 +646,100 @@
   async function addFile(t, file, tag) {
     if (!S.available) return toast("Dieser Browser unterstützt keine Verschlüsselung (bitte über https öffnen).");
     if (file.size > 25 * 1048576) return toast(`„${file.name}“ ist größer als 25 MB.`);
-    const key = state.keys[t.id] && state.keys[t.id].k;
-    if (!key) return toast("Für diesen Urlaub fehlt der Schlüssel.");
     const id = uid() + uid();
-    const enc = await S.encBytes(key, new Uint8Array(await file.arrayBuffer()));
-    await S.cachePut(`${t.id}/${id}`, enc);
-    offlineState[id] = true;
+    try { await putBlob(t, id, new Uint8Array(await file.arrayBuffer())); } catch (e) { return toast(e.message); }
     t.tickets ||= [];
-    t.tickets.push({ id, tag: tag || "", name: file.name, mime: file.type || "application/octet-stream", size: file.size, up: false, am: new Date().toISOString() });
+    t.tickets.push({ id, tag: tag || "", name: file.name, mime: file.type || "application/octet-stream", size: file.size, am: new Date().toISOString(), von: C.myId(t) || "" });
     C.save(); toast(`„${file.name}“ hinzugefügt.`);
     if (isShared(t.id)) syncAll({ only: t.id });
   }
   async function deleteFile(t, id) {
-    const f = (t.tickets || []).find((x) => x.id === id); if (!f) return;
+    if (!(t.tickets || []).some((x) => x.id === id)) return;
     t.tickets = t.tickets.filter((x) => x.id !== id);
-    await S.cacheDel(`${t.id}/${id}`);
-    const cfg = cfgFor(t.id);
-    if (f.up && cfg) { state.fileDeletes ||= []; state.fileDeletes.push({ cfg, path: `files/${t.id}/${id}.enc` }); }
+    dropBlob(t, id);
     C.save(); if (isShared(t.id)) syncAll({ only: t.id });
   }
-  async function getFileBlob(t, f) {
-    const key = state.keys[t.id] && state.keys[t.id].k;
-    let bytes = await S.cacheGet(`${t.id}/${f.id}`);
-    if (!bytes) {
-      const cfg = cfgFor(t.id);
-      if (!cfg || !online()) throw new Error("Datei ist noch nicht offline gespeichert und gerade nicht erreichbar.");
-      bytes = await S.getRawBytes(cfg, `files/${t.id}/${f.id}.enc`);
-      if (!bytes) throw new Error("Datei nicht gefunden – wurde sie schon hochgeladen?");
-      await S.cachePut(`${t.id}/${f.id}`, bytes); offlineState[f.id] = true;
-    }
-    return new Blob([await S.decBytes(key, bytes)], { type: f.mime });
-  }
+  const tagOptions = (t, sel) => `<option value="" ${!sel ? "selected" : ""}>Allgemein (ohne Tag)</option>` +
+    t.plan.slice(0, t.tage).map((r, i) => `<option value="${r.id}" ${r.id === sel ? "selected" : ""}>${esc(dayLabel(t, i))}${r.titel ? " · " + esc(r.titel) : ""}</option>`).join("");
   async function openFile(t, id) {
     const f = (t.tickets || []).find((x) => x.id === id); if (!f) return;
     let blob;
-    try { blob = await getFileBlob(t, f); } catch (e) { return toast(e.message); }
+    try { blob = new Blob([await getBlob(t, f.id)], { type: f.mime }); } catch (e) { return toast(e.message); }
     const url = URL.createObjectURL(blob);
     const isImg = f.mime.startsWith("image/"), isPdf = f.mime === "application/pdf";
     openModal({
       title: f.name, wide: true,
-      body: isImg ? `<img src="${url}" alt="${esc(f.name)}" class="file-view-img">`
+      body: (isImg ? `<img src="${url}" alt="${esc(f.name)}" class="file-view-img">`
         : isPdf ? `<iframe src="${url}" class="file-view-pdf" title="${esc(f.name)}"></iframe>`
-          : `<p class="muted">Vorschau für diesen Dateityp nicht möglich.</p>`,
-      foot: `<a class="btn" href="${url}" target="_blank" rel="noopener">In neuem Tab öffnen</a><a class="btn" href="${url}" download="${esc(f.name)}">Herunterladen</a><span class="spacer"></span><button class="btn primary" data-close>Schließen</button>`
+          : `<p class="muted">Vorschau für diesen Dateityp nicht möglich.</p>`)
+        + `<label class="field" style="margin-top:.8rem">Gehört zu<select data-retag>${tagOptions(t, f.tag)}</select></label>`,
+      foot: `<a class="btn" href="${url}" target="_blank" rel="noopener">In neuem Tab öffnen</a><a class="btn" href="${url}" download="${esc(f.name)}">Herunterladen</a><span class="spacer"></span><button class="btn primary" data-close>Schließen</button>`,
+      onMount: (m) => $("[data-retag]", m).addEventListener("change", (e) => { f.tag = e.target.value; C.commit(); toast("Zugeordnet."); })
     });
   }
 
   // =========================================================
-  //  UNTERWEGS (Durchführung: der heutige Tag mit Tickets)
+  //  UNTERWEGS (alle Tage mit Tickets; Dateien per Drag & Drop)
   // =========================================================
-  function currentIdx(t) {
+  const uwOpen = {}; // Urlaub-id → Set geöffneter Tage
+  let uwScrolled = null;
+  function todayIdx(t) {
     const today = C.todayISO();
-    state.ui.dayIdx ||= {};
-    if (state.ui.dayIdx[t.id] != null && state.ui.dayIdx[t.id] < t.tage && state.ui.dayPinned) return state.ui.dayIdx[t.id];
-    if (!t.von) return state.ui.dayIdx[t.id] ?? 0;
-    const d = C.dayDiff(t.von, today);
-    return Math.max(0, Math.min(t.tage - 1, d));
+    if (!t.von || today < t.von || today > t.bis) return -1;
+    return C.dayDiff(t.von, today);
+  }
+  function dayBody(t, r) {
+    const route = [r.von, r.nach].filter(Boolean).join(" → ");
+    const facts = [r.km && `${r.km} km`, r.dauer, r.hoch && `↑ ${r.hoch} m`, r.runter && `↓ ${r.runter} m`].filter(Boolean);
+    const maps = (q) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;
+    const track = (t.tracks || []).find((x) => x.tag === r.id);
+    return `<div class="uw-body">
+      ${route ? `<div class="tc-route">${esc(route)}</div>` : ""}
+      ${facts.length ? `<div class="tc-facts">${facts.map((x) => `<span>${esc(x)}</span>`).join("")}</div>` : ""}
+      ${track ? `<p class="small muted" style="margin:.5rem 0 0">GPX-Track: ${esc(track.name)} · <a href="#karte" data-mapday="${r.id}">auf der Karte</a></p>` : ""}
+      ${r.highlights ? `<div class="tc-sec"><h4>Highlights</h4><p>${esc(r.highlights)}</p></div>` : ""}
+      ${r.unterkunft ? `<div class="tc-sec"><h4>Unterkunft</h4><p>${esc(r.unterkunft)} <a class="map-link" href="${maps(r.unterkunft + " " + (r.nach || t.ziel || ""))}" target="_blank" rel="noopener">${ICONS.map} Karte</a></p></div>` : ""}
+      ${r.hinweise ? `<div class="tc-sec"><h4>Hinweise</h4><p>${esc(r.hinweise)}</p></div>` : ""}
+      ${r.sonstiges ? `<div class="tc-sec"><h4>Sonstiges</h4><p>${esc(r.sonstiges)}</p></div>` : ""}
+      <div class="tc-sec"><h4>Tickets & Unterlagen</h4>${filesHtml(t, r.id)}</div>
+      <div class="row" style="margin-top:.6rem"><button class="btn sm" data-act="edit" data-id="${r.id}">${ICON.edit} Tag bearbeiten</button></div>
+    </div>`;
   }
   function renderUnterwegs() {
     const t = trip(); const el = $("#view-unterwegs");
     ensurePlan(t);
-    const i = currentIdx(t); const r = t.plan[i] || {};
-    const today = C.todayISO(); const isToday = dateOf(t, i) === today;
+    const ti = todayIdx(t); const today = C.todayISO();
     const before = t.von && today < t.von;
-    const next = t.plan[i + 1];
-    const route = [r.von, r.nach].filter(Boolean).join(" → ");
-    const facts = [r.km && `${r.km} km`, r.dauer && r.dauer, r.hoch && `↑ ${r.hoch} m`, r.runter && `↓ ${r.runter} m`].filter(Boolean);
-    const maps = (q) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;
-    const files = (t.tickets || []);
-    const offline = files.filter((f) => offlineState[f.id]).length;
+    if (!uwOpen[t.id]) uwOpen[t.id] = new Set([t.plan[ti >= 0 ? ti : 0].id]);
+    const open = uwOpen[t.id];
+    const files = t.tickets || [];
     el.innerHTML = `
       ${whoAmI(t)}
-      ${before ? `<div class="card card-pad countdown-card"><b>Noch ${C.dayDiff(today, t.von)} ${C.dayDiff(today, t.von) === 1 ? "Tag" : "Tage"}</b> bis „${esc(tripName(t))}“ losgeht. Hier siehst du unterwegs jeden Tag auf einen Blick – mit Tickets, auch offline.</div>` : ""}
-      <div class="day-nav">
-        <button class="btn" data-act="prev" ${i === 0 ? "disabled" : ""} aria-label="Vorheriger Tag">‹</button>
-        <div class="day-nav-title"><b>${esc(dayLabel(t, i, true))}</b><small>Tag ${i + 1} von ${t.tage}${isToday ? " · heute" : ""}</small></div>
-        <button class="btn" data-act="next" ${i >= t.tage - 1 ? "disabled" : ""} aria-label="Nächster Tag">›</button>
-        ${!isToday && t.von && today >= t.von && today <= t.bis ? `<button class="btn sm" data-act="today">Heute</button>` : ""}
-      </div>
-      <div class="card today-card typ-${r.typ || "none"}">
-        <div class="tc-top">${r.typ ? `<span class="badge typ-badge">${typName(r.typ)}</span>` : ""}<h2>${esc(r.titel || (r.typ ? typName(r.typ) : "Noch nichts geplant"))}</h2></div>
-        ${route ? `<div class="tc-route">${esc(route)}</div>` : ""}
-        ${facts.length ? `<div class="tc-facts">${facts.map((x) => `<span>${esc(x)}</span>`).join("")}</div>` : ""}
-        ${r.highlights ? `<div class="tc-sec"><h4>Highlights</h4><p>${esc(r.highlights)}</p></div>` : ""}
-        ${r.unterkunft ? `<div class="tc-sec"><h4>Unterkunft</h4><p>${esc(r.unterkunft)} <a class="map-link" href="${maps(r.unterkunft + " " + (r.nach || t.ziel || ""))}" target="_blank" rel="noopener">${ICONS.map} Karte</a></p></div>` : ""}
-        ${r.hinweise ? `<div class="tc-sec"><h4>Hinweise</h4><p>${esc(r.hinweise)}</p></div>` : ""}
-        ${r.sonstiges ? `<div class="tc-sec"><h4>Sonstiges</h4><p>${esc(r.sonstiges)}</p></div>` : ""}
-        <div class="tc-sec"><h4>Tickets & Unterlagen</h4><div data-files="${r.id}">${filesHtml(t, r.id)}</div></div>
-        <div class="row" style="margin-top:.6rem"><button class="btn sm" data-act="edit" data-id="${r.id}">${ICON.edit} Tag bearbeiten</button></div>
-      </div>
-      ${next ? `<button class="card next-card" data-act="next"><small>${isToday ? "Morgen" : "Nächster Tag"} · ${esc(dayLabel(t, i + 1))}</small><b>${esc(next.titel || typName(next.typ) || "–")}</b>${next.unterkunft ? `<span class="muted small">Unterkunft: ${esc(next.unterkunft)}</span>` : ""}</button>` : ""}
-      <details class="card card-pad all-files" ${state.ui.allFilesOpen ? "open" : ""}>
-        <summary><b>Alle Unterlagen</b> <span class="muted small" data-offcount>· ${files.length} ${files.length === 1 ? "Datei" : "Dateien"}${files.length ? ` · ${offline} offline verfügbar` : ""}</span></summary>
-        ${t.plan.slice(0, t.tage).map((row, j) => { const fl = files.filter((f) => f.tag === row.id); return fl.length ? `<h4 class="form-sub">${esc(dayLabel(t, j))} · ${esc(row.titel || "")}</h4>${filesHtmlList(fl)}` : ""; }).join("")}
-        <h4 class="form-sub">Ohne bestimmten Tag (z. B. Versicherung, Mietwagen)</h4>
-        <div data-files="">${filesHtml(t, "")}</div>
-      </details>`;
-    refreshOffline(t).then(() => {
-      const oc = $("[data-offcount]", el); if (oc && files.length) oc.textContent = `· ${files.length} ${files.length === 1 ? "Datei" : "Dateien"} · ${files.filter((f) => offlineState[f.id]).length} offline verfügbar`;
-      // Offline-Kennzeichnung nachtragen, ohne neu zu zeichnen
-      $$("[data-fopen]", el).forEach((b) => { const f = files.find((x) => x.id === b.dataset.fopen); if (f && offlineState[f.id] && !b.querySelector("small").textContent.includes("offline")) b.querySelector("small").textContent += " · offline verfügbar"; });
-    });
+      ${before ? `<div class="card card-pad countdown-card"><b>Noch ${C.dayDiff(today, t.von)} ${C.dayDiff(today, t.von) === 1 ? "Tag" : "Tage"}</b> bis „${esc(tripName(t))}“ losgeht.</div>` : ""}
+      <section class="card card-pad uw-allg" data-drop="">
+        <div class="row" style="justify-content:space-between"><h3 class="section-title">Allgemein</h3><span class="muted small">nicht an einen Tag gebunden</span></div>
+        <textarea class="input uw-notes" data-allg rows="3" placeholder="Notizen für die ganze Reise – z. B. Notfallnummern, WLAN, Mietwagen-Abholung …">${esc(t.allgemein || "")}</textarea>
+        <h4 class="form-sub" style="margin:.7rem 0 .35rem">Dateien – z. B. Offline-Karten, Versicherung, Mietvertrag</h4>
+        ${filesHtml(t, "")}
+      </section>
+      <p class="muted small uw-hint">${ICONS.clip} Dateien einfach auf einen Tag ziehen – oder vorhandene Dateien zwischen Tagen verschieben.</p>
+      <div class="uw-days">${t.plan.slice(0, t.tage).map((r, i) => {
+        const isOpen = open.has(r.id); const n = files.filter((f) => f.tag === r.id).length;
+        return `<section class="card uw-day typ-${r.typ || "none"} ${isOpen ? "open" : ""} ${i === ti ? "is-today" : ""}" data-drop="${r.id}" id="uw-${r.id}">
+          <button class="uw-head" data-toggle="${r.id}" aria-expanded="${isOpen}">
+            <span class="uw-date"><b>${esc(dayLabel(t, i))}</b><small>Tag ${i + 1}${i === ti ? " · heute" : ""}</small></span>
+            <span class="uw-title">${r.typ ? `<span class="badge typ-badge">${typName(r.typ)}</span>` : ""}<span>${esc(r.titel || (r.typ ? "" : "–"))}</span></span>
+            <span class="uw-meta">${n ? `<span class="file-count">${ICONS.clip}${n}</span>` : ""}<span class="chev">${isOpen ? "▴" : "▾"}</span></span>
+          </button>
+          ${isOpen ? dayBody(t, r) : n ? `<ul class="files mini-files">${files.filter((f) => f.tag === r.id).map(fileLi).join("")}</ul>` : ""}
+        </section>`;
+      }).join("")}</div>`;
+    refreshOffline(t);
+    if (ti >= 0 && uwScrolled !== t.id) {
+      uwScrolled = t.id;
+      setTimeout(() => { const x = document.getElementById("uw-" + t.plan[ti].id); if (x) x.scrollIntoView({ behavior: "smooth", block: "start" }); }, 80);
+    }
   }
-  const filesHtmlList = (fl) => `<ul class="files">${fl.map((f) => `<li><button class="file-open" data-fopen="${f.id}">${ICONS.file}<span><b>${esc(f.name)}</b><small>${fmtSize(f.size || 0)}</small></span></button></li>`).join("")}</ul>`;
   function onUnterwegsClick(e) {
     const t = trip();
     const me = e.target.closest("[data-me]");
@@ -710,21 +747,57 @@
     const o = e.target.closest("[data-fopen]"); if (o) return openFile(t, o.dataset.fopen);
     const d = e.target.closest("[data-fdel]");
     if (d) { if (!armed(d, "Löschen?")) return; return deleteFile(t, d.dataset.fdel).then(() => C.render()); }
+    const tg = e.target.closest("[data-toggle]");
+    if (tg) { const s = uwOpen[t.id]; s.has(tg.dataset.toggle) ? s.delete(tg.dataset.toggle) : s.add(tg.dataset.toggle); return C.render(); }
+    const md = e.target.closest("[data-mapday]");
+    if (md) { state.ui.mapTrip = t.id; state.ui.mapDetail = "route"; return; }
     const a = e.target.closest("[data-act]"); if (!a) return;
-    const i = currentIdx(t);
-    state.ui.dayIdx ||= {};
-    if (a.dataset.act === "prev") { state.ui.dayIdx[t.id] = Math.max(0, i - 1); state.ui.dayPinned = true; }
-    if (a.dataset.act === "next") { state.ui.dayIdx[t.id] = Math.min(t.tage - 1, i + 1); state.ui.dayPinned = true; }
-    if (a.dataset.act === "today") { state.ui.dayPinned = false; }
     if (a.dataset.act === "edit") return openDay(t, a.dataset.id);
-    C.commit(); window.scrollTo({ top: 0, behavior: "smooth" });
   }
   async function onUnterwegsChange(e) {
-    const inp = e.target.closest("[data-fadd]"); if (!inp || !inp.files.length) return;
     const t = trip();
+    if (e.target.dataset.allg != null) { t.allgemein = e.target.value; return C.save(); }
+    const inp = e.target.closest("[data-fadd]"); if (!inp || !inp.files.length) return;
     for (const file of inp.files) await addFile(t, file, inp.dataset.fadd);
     C.render();
   }
+  // Drag & Drop: neue Dateien vom Computer oder vorhandene Dateien zwischen Tagen
+  function bindDrops(el) {
+    el.addEventListener("dragstart", (e) => {
+      const li = e.target.closest("[data-fid]"); if (!li) return;
+      e.dataTransfer.setData("text/x-fid", li.dataset.fid); e.dataTransfer.effectAllowed = "move";
+      li.classList.add("dragging");
+    });
+    el.addEventListener("dragend", (e) => { const li = e.target.closest("[data-fid]"); if (li) li.classList.remove("dragging"); });
+    el.addEventListener("dragover", (e) => {
+      const z = e.target.closest("[data-drop]"); if (!z) return;
+      e.preventDefault(); e.dataTransfer.dropEffect = [...e.dataTransfer.types].includes("Files") ? "copy" : "move";
+      $$(".drag-over", el).forEach((x) => { if (x !== z) x.classList.remove("drag-over"); });
+      z.classList.add("drag-over");
+    });
+    el.addEventListener("dragleave", (e) => {
+      const z = e.target.closest("[data-drop]"); if (z && !z.contains(e.relatedTarget)) z.classList.remove("drag-over");
+    });
+    el.addEventListener("drop", async (e) => {
+      const z = e.target.closest("[data-drop]"); if (!z) return;
+      e.preventDefault(); z.classList.remove("drag-over");
+      const t = trip(); const tag = z.dataset.drop;
+      const fid = e.dataTransfer.getData("text/x-fid");
+      if (fid) {
+        const f = (t.tickets || []).find((x) => x.id === fid);
+        if (f && (f.tag || "") !== tag) { f.tag = tag; C.commit(); toast("Verschoben."); }
+        return;
+      }
+      if (e.dataTransfer.files.length) {
+        for (const file of e.dataTransfer.files) await addFile(t, file, tag);
+        if (tag) uwOpen[t.id].add(tag);
+        C.render();
+      }
+    });
+  }
+  // Dateien, die daneben fallen gelassen werden, nicht im Browser öffnen
+  document.addEventListener("dragover", (e) => { if (e.dataTransfer && [...e.dataTransfer.types].includes("Files")) e.preventDefault(); });
+  document.addEventListener("drop", (e) => { if (e.dataTransfer && e.dataTransfer.files.length && !e.target.closest("[data-drop]")) e.preventDefault(); });
 
   // =========================================================
   //  KOSTEN & AUFTEILUNG
@@ -1177,7 +1250,18 @@
   //  Registrierung & Ereignisse
   // =========================================================
   PL.views = { urlaube: renderUrlaube, plan: renderPlan, unterwegs: renderUnterwegs, kosten: renderKosten, einstellungen: renderSettings };
+  PL.U = { cfgFor, isShared, syncAll, putBlob, getBlob, dropBlob, offlineState, whoAmI, planStats, TYPEN, typName, dayLabel, dateOf,
+    ensurePlan, durMin, fmtDur, num, fmtNum, money, ICONS, online, openDay, tripBadge, fmtSize };
   PL.init = () => {
+    // leere, unbenannte Urlaube (z. B. automatisch angelegt von der alten Packliste) entfernen
+    const isEmpty = (t) => !(t.name || "").trim() && !(t.ziel || "").trim() && !t.von && !(t.kosten || []).length && !(t.tickets || []).length
+      && !(t.fotos || []).length && !(t.orte || []).length && (t.plan || []).every(rowEmpty);
+    Object.values(state.trips).forEach((t) => {
+      if (!isEmpty(t)) return;
+      if (state.keys[t.id] && state.keys[t.id].owner && state.base[t.id] && !state.deleted.includes(t.id)) state.deleted.push(t.id);
+      delete state.trips[t.id]; delete state.keys[t.id]; delete state.base[t.id];
+      if (state.current === t.id) state.current = null;
+    });
     // vorhandene Urlaube auf den neuen Stand bringen
     Object.values(state.trips).forEach(ensurePlan);
     const on = (id, ev, fn) => { const el = $("#view-" + id); if (el) el.addEventListener(ev, fn); };
@@ -1188,7 +1272,7 @@
     on("plan", "keydown", onPlanKey);
     on("unterwegs", "click", onUnterwegsClick);
     on("unterwegs", "change", onUnterwegsChange);
-    on("unterwegs", "toggle", (e) => { if (e.target.classList && e.target.classList.contains("all-files")) { state.ui.allFilesOpen = e.target.open; C.store.save(); } });
+    bindDrops($("#view-unterwegs"));
     on("kosten", "click", onKostenClick);
     on("kosten", "change", onKostenChange);
     on("einstellungen", "click", onSettingsClick);

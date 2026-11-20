@@ -5,8 +5,9 @@ Urlaube gemeinsam planen und unterwegs alles griffbereit haben. Das Ganze ist ei
 | Reiter | Was er kann |
 |---|---|
 | **Urlaube** | Alle Urlaube auf einen Blick, neuen Urlaub anlegen (Wo, Wann, Wer), Import aus Excel |
+| **Weltkarte** | Alle Reisen auf einer Karte: Route als Orte (Luftlinie), GPX-Tracks, Fotos pro Ort, Statistik und Review |
 | **Planung** | Tagesplan wie eine Tabelle: Datum, Art des Tages, Programm, Von/Nach, km, Dauer, Höhenmeter, Highlights, Unterkunft, Hinweise. Summen, Kartenansicht fürs Handy, Excel-Export |
-| **Unterwegs** | Der heutige Tag auf einen Blick, mit Tickets und Unterlagen – auch offline |
+| **Unterwegs** | Bereich „Allgemein“ (Notizen, Offline-Karten …) und alle Tage als Liste – heute ist aufgeklappt. Dateien einfach auf einen Tag ziehen |
 | **Kosten** | Wer hat was bezahlt, für wen; Saldo pro Person und Vorschlag mit möglichst wenigen Überweisungen |
 | **Packliste** | Interaktive Packliste mit Mengen nach Reisedauer, Tags (gemeinsam/Person), Haken pro Person |
 | **Essen** | Essensplaner für Wandertage mit Einkaufs- und Dehydrierliste |
@@ -42,6 +43,16 @@ Hinweise:
 - Original-Tickets trotzdem in der Mail oder Wallet behalten. Die Website ist eine bequeme Kopie, keine Ablage für Originale.
 - Ausweis- oder Passkopien besser nicht hochladen. Verschlüsselt wäre es zwar, aber je weniger sensible Kopien herumliegen, desto besser.
 
+## Weltkarte
+
+- **Route = Orte:** Jede Reise ist eine Folge von Orten, verbunden per Luftlinie. Ein längerer Aufenthalt (z. B. 3 Tage Lyon) ist *ein* Ort mit 3 Nächten. „Aus Tagesplan übernehmen“ liest die Spalten Von/Nach (bzw. „A → B“ im Programm) und sucht die Orte über OpenStreetMap. Nicht gefundene Orte setzt du per Klick auf die Karte.
+- **GPX-Tracks:** In Outdooractive die Tour öffnen → „GPX herunterladen“. Dieselbe Datei kommt auf die Suunto und hier hoch: im Tagesdialog der Planung oder unter Weltkarte → Route. Distanz und Höhenmeter werden berechnet und in den Tag übernommen. Der Track erscheint auf der Karte, und die Originaldatei lässt sich wieder herunterladen.
+- **Fotos:** Pro Reise oder pro Ort. Fotos werden im Browser auf max. 2048 px verkleinert, verschlüsselt und im Daten-Repo gespeichert. Alle Beteiligten können Fotos hochladen. Vorschaubilder werden offline gespeichert.
+- **Review:** Jede Person bewertet selbst (Gesamt, Landschaft & Natur, Wandern, Essen, Unterkunft, Wetter, Preis-Leistung, Kultur, Stimmung) und kann Highlight und Learnings notieren. Angezeigt wird auch der Durchschnitt.
+- **Wer sieht was:** Die Karte zeigt nur Reisen, die auf diesem Gerät entschlüsselt werden können. Das sind deine eigenen und die, zu denen du eingeladen wurdest.
+- **Speicherplatz:** GitHub empfiehlt Repos unter etwa 1 GB. Ein Foto braucht hier rund 0,3–0,6 MB, das reicht also für ein paar tausend Fotos.
+- Kartendaten: © OpenStreetMap-Mitwirkende, Kacheln von CARTO, OpenTopoMap und Esri. Ortssuche: Nominatim.
+
 ## Als App aufs Handy
 
 Seite im Handy-Browser öffnen → Menü → **„Zum Startbildschirm hinzufügen“**. Die App startet dann direkt mit „Unterwegs“ und funktioniert dank Service Worker auch ohne Netz. Änderungen, die du offline machst, werden synchronisiert, sobald wieder Netz da ist.
@@ -66,6 +77,7 @@ css/style.css         Gestaltung (inkl. Druckansicht)
 js/sync.js            Verschlüsselung, GitHub-Daten-Repo, Offline-Speicher, Zusammenführen
 js/app.js             Packliste, Essensplaner, Wandergerichte, gemeinsame Bausteine
 js/urlaub.js          Urlaube, Planung, Unterwegs, Kosten, Einladen, Excel
+js/karte.js           Weltkarte, Orte, GPX, Fotos, Review
 data/packliste.js     Packlisten-Stammdaten (Felder oben in der Datei erklärt)
 data/rezepte.js       Zutaten-Register und Rezepte (Felder oben in der Datei erklärt)
 sw.js                 Service Worker (offline) – bei App-Updates VERSION erhöhen
@@ -77,5 +89,5 @@ manifest.webmanifest  App-Name und -Symbol für den Startbildschirm
 ```
 keys/keyring.enc               deine Urlaube und ihre Schlüssel (mit Passwort verschlüsselt)
 trips/<urlaub-id>.enc          ein Urlaub
-files/<urlaub-id>/<id>.enc     Tickets und Unterlagen
+files/<urlaub-id>/<id>.enc     Tickets, Unterlagen, GPX-Dateien und Fotos (Foto + Vorschau „_t“)
 ```

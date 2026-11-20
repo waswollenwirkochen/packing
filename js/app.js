@@ -45,7 +45,7 @@
     save() {
       try {
         localStorage.setItem(KEY, JSON.stringify({ trips: state.trips, current: state.current, ui: state.ui, data: state.data,
-          me: state.me, keys: state.keys, syncCfg: state.syncCfg, base: state.base, deleted: state.deleted, fileDeletes: state.fileDeletes }));
+          me: state.me, keys: state.keys, syncCfg: state.syncCfg, base: state.base, deleted: state.deleted, fileDeletes: state.fileDeletes, pendingUploads: state.pendingUploads, geo: state.geo }));
       }
       catch { /* Speicher nicht verfügbar – Seite funktioniert trotzdem */ }
     }
@@ -62,6 +62,8 @@
     base: saved.base || {},        // zuletzt synchronisierter Stand je Urlaub (für den 3-Wege-Abgleich)
     deleted: saved.deleted || [],  // gelöschte Urlaube, die noch im Daten-Repo entfernt werden müssen
     fileDeletes: saved.fileDeletes || [],
+    pendingUploads: saved.pendingUploads || [], // Dateien, die noch hochgeladen werden müssen
+    geo: saved.geo || {},                       // Zwischenspeicher für gefundene Orte (Name → Koordinaten)
     ui: Object.assign({ tab: "urlaube", groupBy: "modul", hidePacked: false, hideOptional: false, viewPerson: "alle",
       rFilter: { mahlzeit: "alle", basis: "alle", diaet: "alle", q: "" }, rSub: "gerichte" }, saved.ui || {}),
     data: saved.data || null, // lokale Kopie der Stammdaten, falls bearbeitet
@@ -87,7 +89,7 @@
     const t = {
       id: uid() + uid(), name: "", ziel: "", arten: [...arten], von: "", bis: "", tage: 5,
       personen: [first], module: presetModules(arten),
-      plan: [], kosten: [], tickets: [], waehrung: "€",
+      plan: [], kosten: [], tickets: [], waehrung: "€", orte: [], tracks: [], fotos: [], reviews: {},
       tags: {}, status: {}, menge: {}, essen: null, erstellt: new Date().toISOString()
     };
     state.me[t.id] = first.id;
@@ -109,6 +111,7 @@
     if (!t.personen.length) t.personen = [{ id: uid(), name: "" }];
     t.menge ||= {}; t.status ||= {};
     t.plan ||= []; t.kosten ||= []; t.tickets ||= []; t.ziel ??= ""; t.waehrung ||= "€";
+    t.orte ||= []; t.tracks ||= []; t.fotos ||= []; t.reviews ||= {};
     if (t.ich) { if (!state.me[t.id]) state.me[t.id] = t.ich; delete t.ich; }
     // Haken früher pro Gerät, jetzt pro Person
     const vals = Object.values(t.status);
@@ -156,7 +159,7 @@
       src = Array.from({ length: t.tage }, (_, i) => {
         const typ = t.plan[i] && t.plan[i].typ;
         if (typ === "wandern" && t.arten.includes("wandern")) last = "wandern";
-        else if (["stadt", "strand", "fahrt"].includes(typ)) last = alt;
+        else if (["stadt", "strand", "fahrt", "anreise", "abreise"].includes(typ)) last = alt;
         return last;
       });
     }
@@ -1394,9 +1397,9 @@
   // =========================================================
   //  ROUTING & RENDER
   // =========================================================
-  const TABS = ["urlaube", "plan", "unterwegs", "kosten", "packliste", "essen", "rezepte", "einstellungen"];
+  const TABS = ["urlaube", "karte", "plan", "unterwegs", "kosten", "packliste", "essen", "rezepte", "einstellungen"];
   const TRIP_TABS = ["plan", "unterwegs", "kosten", "packliste", "essen"];
-  const TITLES = { urlaube: "Urlaube", plan: "Planung", unterwegs: "Unterwegs", kosten: "Kosten", packliste: "Packliste", essen: "Essensplaner", rezepte: "Wandergerichte", einstellungen: "Einstellungen" };
+  const TITLES = { karte: "Weltkarte", urlaube: "Urlaube", plan: "Planung", unterwegs: "Unterwegs", kosten: "Kosten", packliste: "Packliste", essen: "Essensplaner", rezepte: "Wandergerichte", einstellungen: "Einstellungen" };
   function route() {
     const h = location.hash.replace("#", "");
     if (TABS.includes(h)) state.ui.tab = h;

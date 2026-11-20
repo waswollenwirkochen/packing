@@ -1,8 +1,8 @@
 /* Service Worker: macht die Urlaubsplanung offline nutzbar.
    App-Dateien werden zwischengespeichert; Daten kommen verschlüsselt von GitHub
    (die API wird nie zwischengespeichert). Bei Änderungen an der App: VERSION erhöhen. */
-const VERSION = "urlaub-v1";
-const SHELL = ["./", "index.html", "css/style.css", "js/sync.js", "js/app.js", "js/urlaub.js", "data/packliste.js", "data/rezepte.js", "manifest.webmanifest", "icons/icon-192.png"];
+const VERSION = "urlaub-v2";
+const SHELL = ["./", "index.html", "css/style.css", "js/sync.js", "js/app.js", "js/urlaub.js", "js/karte.js", "data/packliste.js", "data/rezepte.js", "manifest.webmanifest", "icons/icon-192.png"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(VERSION).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
