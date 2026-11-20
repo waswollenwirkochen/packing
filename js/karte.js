@@ -482,7 +482,7 @@
     let x;
     if ((x = q("[data-mtrip]"))) return select(x.dataset.mtrip);
     if ((x = q("[data-mfilter]"))) { state.ui.mapFilter = x.dataset.mfilter; return renderSide(); }
-    if (q("[data-newtrip]")) return PL.openNewUrlaub();
+    if (q("[data-newtrip]")) return PL.openNewUrlaub({ nachtragen: true });
     if (q("[data-mback]")) { state.ui.mapTrip = null; setMode(null); C.store.save(); renderSide(); draw(); return fitAll(); }
     if ((x = q("[data-mdetail]"))) { state.ui.mapDetail = x.dataset.mdetail; C.store.save(); return renderSide(); }
     if (!tSel) return;

@@ -362,10 +362,10 @@
   }
 
   // ----- Neuer Urlaub -----
-  function openNewUrlaub() {
+  function openNewUrlaub(opts = {}) {
     const P = C.PACK();
     openModal({
-      title: "Neuer Urlaub",
+      title: opts.nachtragen ? "Reise nachtragen" : "Neuer Urlaub",
       body: `<form id="nuForm" class="form-grid">
         <label class="field c6">Wo geht’s hin?<input name="ziel" placeholder="z. B. Queyras & Ligurien" required></label>
         <label class="field c6">Name <span class="muted" style="font-weight:400">– optional</span><input name="name" placeholder="z. B. Roadtrip Sommer 2027"></label>
@@ -374,6 +374,10 @@
         <label class="field c2">oder: Tage<input type="number" name="tage" min="1" max="60" value="7"></label>
         <label class="field c2">Wer kommt mit?<input type="number" name="anzahl" min="1" max="12" value="2"></label>
         <label class="field c4">Namen <span class="muted" style="font-weight:400">– optional, Komma-getrennt, du zuerst</span><input name="namen" placeholder="z. B. Eric, Jenny"></label>
+        <div class="field c6 row" style="gap:.8rem;flex-direction:row;align-items:center">
+          <label class="check"><input type="checkbox" name="vergangen" ${opts.nachtragen ? "checked" : ""}> Reise liegt schon zurück</label>
+          <input class="input" name="jahr" placeholder="Jahr (falls kein Datum), z. B. 2019" style="flex:1;max-width:16em">
+        </div>
         <div class="field c6">Reiseart (kombinierbar)
           <div class="row">${P.arten.map((a, i) => `<label class="check"><input type="checkbox" name="art" value="${a.id}" ${i === 0 ? "checked" : ""}> ${esc(a.name)}</label>`).join("")}</div></div>
       </form>`,
@@ -385,6 +389,7 @@
         const arten = $$("input[name=art]:checked", f).map((x) => x.value);
         const t = C.newTrip(arten.length ? arten : [P.arten[0].id]);
         t.ziel = f.ziel.value.trim(); t.name = f.name.value.trim();
+        if (f.vergangen.checked && !von) { t.vergangen = true; t.jahr = f.jahr.value.trim(); }
         t.tage = Math.max(1, Math.min(60, parseInt(f.tage.value) || 7));
         if (von) C.setRange(t, von, bis && bis >= von ? bis : addDays(von, t.tage - 1));
         const names = f.namen.value.split(",").map((x) => x.trim()).filter(Boolean);

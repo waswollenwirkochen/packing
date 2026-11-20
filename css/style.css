@@ -719,3 +719,8 @@ blockquote cite { display: block; font-size: .8rem; color: var(--ink-3); font-st
   .karte-side { max-height: none; }
 }
 .meta-grid .m-past { grid-column: span 2; }
+
+/* Dialoge & Meldungen immer über der Karte (Leaflet nutzt z-index bis 1000) */
+.overlay { z-index: 3000; }
+#toast { z-index: 3100; }
+.karte-map { isolation: isolate; z-index: 0; }
