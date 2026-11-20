@@ -51,7 +51,7 @@ Hinweise:
 - **Review:** Jede Person bewertet selbst (Gesamt, Landschaft & Natur, Wandern, Essen, Unterkunft, Wetter, Preis-Leistung, Kultur, Stimmung) und kann Highlight und Learnings notieren. Angezeigt wird auch der Durchschnitt.
 - **Wer sieht was:** Die Karte zeigt nur Reisen, die auf diesem Gerät entschlüsselt werden können. Das sind deine eigenen und die, zu denen du eingeladen wurdest.
 - **Speicherplatz:** GitHub empfiehlt Repos unter etwa 1 GB. Ein Foto braucht hier rund 0,3–0,6 MB, das reicht also für ein paar tausend Fotos.
-- Kartendaten: © OpenStreetMap-Mitwirkende, Kacheln von CARTO, OpenTopoMap und Esri. Ortssuche: Nominatim.
+- Kartendaten: © OpenStreetMap-Mitwirkende, Kacheln von OpenStreetMap, OpenTopoMap und Esri. Ortssuche: Nominatim.
 
 ## Als App aufs Handy
 

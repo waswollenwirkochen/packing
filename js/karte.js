@@ -278,7 +278,8 @@
     return loadLeaflet().then((L) => {
       map = L.map("kMap", { worldCopyJump: true, zoomControl: true }).setView([47, 10], 4);
       const base = {
-        "Karte": L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", { maxZoom: 19, attribution: "© OpenStreetMap-Mitwirkende © CARTO" }),
+        // OpenStreetMap-Standardkarte – frei nutzbar ohne API-Schlüssel (mit Namensnennung)
+        "Karte": L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap-Mitwirkende</a>' }),
         "Topo": L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", { maxZoom: 17, attribution: "© OpenStreetMap-Mitwirkende, SRTM | © OpenTopoMap (CC-BY-SA)" }),
         "Satellit": L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", { maxZoom: 19, attribution: "Bilder © Esri" })
       };
