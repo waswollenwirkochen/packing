@@ -79,7 +79,7 @@
   // =========================================================
   //  SYNCHRONISIERUNG
   // =========================================================
-  const sync = { status: "off", msg: "", at: null, queue: Promise.resolve(), timer: null };
+  const sync = { status: "off", msg: "", at: null, queue: Promise.resolve(), timer: null, locked: new Set() };
   const online = () => navigator.onLine !== false;
   function cfgFor(id) {
     const k = state.keys[id]; if (!k) return null;
@@ -116,8 +116,11 @@
         state.base[id] = { sha: remote.sha, doc: null };
         return;
       }
-      throw new Error("Urlaub konnte nicht entschlüsselt werden – Schlüssel passt nicht. Bitte zuerst am Gerät synchronisieren, auf dem der Urlaub angelegt wurde.");
+      // kein Fehler mehr für alle Urlaube – nur vormerken; ein anderes Gerät mit dem passenden Schlüssel repariert es
+      sync.locked.add(id);
+      return;
     }
+    sync.locked.delete(id);
     const local = state.trips[id];
     const merged = local ? S.merge3(base && base.doc, local, remoteDoc) : remoteDoc;
     // eigene Kopien – der Basisstand darf nie dasselbe Objekt wie der lokale Urlaub sein
@@ -1202,6 +1205,7 @@
   // =========================================================
   //  EINSTELLUNGEN (Daten-Repo einrichten)
   // =========================================================
+  const lockedList = () => [...sync.locked].filter((id) => !state.trips[id] && !(state.ui.ignoreLocked || []).includes(id));
   function renderSettings() {
     const el = $("#view-einstellungen");
     const cfg = state.syncCfg;
@@ -1230,6 +1234,9 @@
             <div class="c6 row"><button class="btn primary">Verbinden</button><span class="small muted" id="syncMsg"></span></div>
           </form>`}
       </div>
+      ${lockedList().length ? `<div class="card card-pad stack"><h3 class="section-title">Wartet auf Schlüssel</h3>
+        <p class="small muted">${lockedList().length} Urlaub(e) liegen im Daten-Repo, lassen sich auf diesem Gerät aber noch nicht öffnen (Kennung: ${lockedList().map((id) => esc(id.slice(0, 8))).join(", ")}). Öffne die Urlaubsplanung auf dem Gerät, auf dem du die Reise angelegt oder importiert hast, und synchronisiere dort – danach erscheint sie hier automatisch.</p>
+        <div class="row"><button class="btn sm" data-act="unlock-forget">Hier nicht mehr anzeigen</button></div></div>` : ""}
       ${renderPeople()}
       ${invited.length ? `<div class="card card-pad"><h3 class="section-title">Urlaube, zu denen du eingeladen bist</h3><ul class="plain">${invited.map(([id]) => `<li>${esc(state.trips[id] ? tripName(state.trips[id]) : id)}</li>`).join("")}</ul></div>` : ""}
       <div class="card card-pad stack">
@@ -1273,6 +1280,10 @@
   function onSettingsClick(e) {
     const a = e.target.closest("[data-act]"); if (!a) return;
     if (onPeopleClick(a)) return;
+    if (a.dataset.act === "unlock-forget") {
+      state.ui.ignoreLocked = [...new Set([...(state.ui.ignoreLocked || []), ...sync.locked])];
+      C.store.save(); return C.render();
+    }
     if (a.dataset.act === "syncnow") return syncAll().then(() => C.render());
     if (a.dataset.act === "logout") {
       if (!armed(a, "Wirklich abmelden?")) return;
