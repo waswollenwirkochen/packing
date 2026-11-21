@@ -2,7 +2,7 @@
   "name": "Urlaubsplanung",
   "short_name": "Urlaub",
   "description": "Urlaube gemeinsam planen: Tagesplan, Kosten, Tickets, Packliste",
-  "start_url": "./#unterwegs",
+  "start_url": "./#urlaube",
   "scope": "./",
   "display": "standalone",
   "background_color": "#f4eee1",

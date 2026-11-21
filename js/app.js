@@ -1504,9 +1504,10 @@
   // Start, sobald alle Skripte geladen sind
   window.addEventListener("DOMContentLoaded", () => {
     if (window.PL.init) window.PL.init();
-    const h = location.hash.replace("#", "");
-    if (!TABS.includes(h) && !(window.PL.handleHash && window.PL.handleHash())) {
-      try { history.replaceState(null, "", location.pathname + location.search + "#" + state.ui.tab); } catch { /* egal */ }
+    // Beim Öffnen immer mit „Urlaube“ starten (außer bei Einladungs-/Verbindungslinks)
+    if (!(window.PL.handleHash && window.PL.handleHash())) {
+      state.ui.tab = "urlaube";
+      try { history.replaceState(null, "", location.pathname + location.search + "#urlaube"); } catch { /* egal */ }
     }
     route();
     store.save();
