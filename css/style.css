@@ -32,6 +32,7 @@
 
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
+html, body { overflow-x: clip; }
 body {
   margin: 0;
   font-family: var(--font-body);
@@ -281,7 +282,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, .btn:focus-vi
 .modal-head .icon-btn { margin-left: auto; }
 .modal-body { padding: 1rem 1.2rem; }
 .modal-foot { display: flex; gap: .5rem; padding: .8rem 1.2rem 1.1rem; justify-content: flex-end; flex-wrap: wrap; }
-.form-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: .7rem; }
+.form-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: .7rem; }
 .form-grid .c2 { grid-column: span 2; } .form-grid .c3 { grid-column: span 3; } .form-grid .c4 { grid-column: span 4; } .form-grid .c6 { grid-column: 1 / -1; }
 .hint { font-size: .8rem; color: var(--ink-3); background: var(--paper); border-radius: 8px; padding: .45rem .6rem; }
 .zrows { display: flex; flex-direction: column; gap: .35rem; }
@@ -318,8 +319,9 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, .btn:focus-vi
   .plan tr { display: block; border-bottom: 1px solid var(--line); padding: .4rem 0; }
   .plan td { display: block; border: 0; padding: .25rem .6rem; }
   .plan td[data-label]::before { content: attr(data-label); display: block; font-size: .7rem; text-transform: uppercase; letter-spacing: .08em; color: var(--ink-3); }
-  .form-grid { grid-template-columns: 1fr 1fr; }
-  .form-grid .c2, .form-grid .c3 { grid-column: span 1; }
+  .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .form-grid .c2 { grid-column: span 1; }
+  .form-grid .c3 { grid-column: 1 / -1; }
   .form-grid .c4 { grid-column: 1 / -1; }
   .recipe-detail .cols { grid-template-columns: 1fr; }
   .trip-card { top: auto; }
@@ -594,7 +596,8 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, .btn:focus-vi
 @media (max-width: 920px) { .kosten-layout { grid-template-columns: 1fr; } }
 
 /* ---------- Einstellungen ---------- */
-.settings { display: grid; gap: 1rem; max-width: 820px; }
+.settings { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; max-width: 820px; }
+.settings .card, .setup-steps li { min-width: 0; overflow-wrap: anywhere; }
 .settings h2 { font-size: 1.35rem; }
 .settings p { margin: 0; }
 .settings svg { width: 15px; height: 15px; vertical-align: -2px; }
