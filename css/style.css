@@ -49,6 +49,10 @@ body {
 .bg-label { position: fixed; right: .9rem; bottom: .6rem; z-index: 0; pointer-events: none; font-size: .68rem; letter-spacing: .12em; text-transform: uppercase; color: #8c7650; opacity: .75; font-variant-numeric: tabular-nums; }
 .bg-label b { font-weight: 600; letter-spacing: .14em; }
 @media (max-width: 700px) { .bg-label { display: none; } }
+.people-list { display: grid; gap: .1rem; }
+.people-row { display: flex; align-items: center; gap: .6rem; padding: .55rem 0; border-top: 1px solid var(--line); flex-wrap: wrap; }
+.people-name { display: flex; flex-direction: column; flex: 1; min-width: 10rem; }
+.section-title svg { width: 18px; height: 18px; vertical-align: -3px; margin-right: .2rem; }
 code { background: var(--paper-2); padding: 0 .3em; border-radius: 4px; font-size: .9em; }
 h1, h2, h3 { font-family: var(--font-display); font-weight: 700; letter-spacing: -.01em; margin: 0; }
 button, input, select, textarea { font: inherit; color: inherit; }

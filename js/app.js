@@ -45,7 +45,7 @@
     save() {
       try {
         localStorage.setItem(KEY, JSON.stringify({ trips: state.trips, current: state.current, ui: state.ui, data: state.data,
-          me: state.me, keys: state.keys, syncCfg: state.syncCfg, base: state.base, deleted: state.deleted, fileDeletes: state.fileDeletes, pendingUploads: state.pendingUploads, geo: state.geo }));
+          me: state.me, keys: state.keys, syncCfg: state.syncCfg, base: state.base, deleted: state.deleted, fileDeletes: state.fileDeletes, pendingUploads: state.pendingUploads, geo: state.geo, profile: state.profile, contacts: state.contacts }));
       }
       catch { /* Speicher nicht verfügbar – Seite funktioniert trotzdem */ }
     }
@@ -63,6 +63,8 @@
     deleted: saved.deleted || [],  // gelöschte Urlaube, die noch im Daten-Repo entfernt werden müssen
     fileDeletes: saved.fileDeletes || [],
     pendingUploads: saved.pendingUploads || [], // Dateien, die noch hochgeladen werden müssen
+    profile: saved.profile || { name: "" },      // wie ich in den Reisen heiße
+    contacts: saved.contacts || [],             // verbundene Mitreisende: { id, name, k }
     geo: saved.geo || {},                       // Zwischenspeicher für gefundene Orte (Name → Koordinaten)
     ui: Object.assign({ tab: "urlaube", groupBy: "modul", hidePacked: false, hideOptional: false, viewPerson: "alle",
       rFilter: { mahlzeit: "alle", basis: "alle", diaet: "alle", q: "" }, rSub: "gerichte" }, saved.ui || {}),
@@ -96,6 +98,10 @@
     state.keys[t.id] = { k: window.PL.sync.randomKey(), owner: true };
     return t;
   }
+  // Namen vergleichen: Groß-/Kleinschreibung, Akzente und Leerzeichen egal
+  const normName = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+  // komplett klein geschriebene Namen ("jakob") einheitlich groß schreiben
+  const niceName = (s) => { const v = String(s || "").replace(/\s+/g, " ").trim(); return v && (v === v.toLowerCase() || (v.length > 2 && v === v.toUpperCase())) ? v.toLowerCase().replace(/(^|[\s-])(\p{L})/gu, (m, a, b) => a + b.toUpperCase()) : v; };
   // ältere gespeicherte Trips auf das neue Format bringen
   function migrate(t) {
     if (!t.arten) t.arten = [t.art || "wandern"];
@@ -107,7 +113,7 @@
     delete t.zuweisung;
     const ren = { "kleidung-stadt": "kleidung", "kleidung-wandern": "kleidung" };
     t.module = [...new Set((t.module || []).map((m) => ren[m] || m))];
-    t.personen = (t.personen || []).map((p) => ({ id: p.id, name: p.name === "Ich" ? "" : p.name || "" }));
+    t.personen = (t.personen || []).map((p) => ({ id: p.id, name: niceName(p.name === "Ich" ? "" : p.name || "") }));
     if (!t.personen.length) t.personen = [{ id: uid(), name: "" }];
     t.menge ||= {}; t.status ||= {};
     t.plan ||= []; t.kosten ||= []; t.tickets ||= []; t.ziel ??= ""; t.waehrung ||= "€";
@@ -627,7 +633,7 @@
   }
   function onPackChange(e) {
     const t = trip(); const a = e.target;
-    if (a.dataset.pname) { const p = person(t, a.dataset.pname); if (p) p.name = a.value.trim(); return commit(); }
+    if (a.dataset.pname) { const p = person(t, a.dataset.pname); if (p) p.name = niceName(a.value); return commit(); }
     if (a.dataset.bind) {
       const k = a.dataset.bind;
       if (k === "name") t.name = a.value.trim();
@@ -1490,7 +1496,7 @@
   // Schnittstelle für die Urlaubsplanung (js/urlaub.js)
   Object.assign(window.PL, {
     core: { state, store, $, $$, esc, uid, clone, slug, fmtDate, addDays, dayDiff, ICON, PACK, REZ, trip, tripName, person, pname, artNames,
-      myId, setMe, ST, isPast, sortKey, toast, openModal, closeModal, armed, askName, copyText, commit, save, render, route, doPrint,
+      myId, setMe, ST, normName, niceName, isPast, sortKey, toast, openModal, closeModal, armed, askName, copyText, commit, save, render, route, doPrint,
       cal, renderCal, parseDE, toDE, setRange, setPersonCount, todayISO, presetModules, newTrip, migrate, metaFields,
       onPackClick, onPackChange, tripItems, qtyOf, tagsOf, essen, rez, zut, recipeInfo, MEAL_LABEL, fmtG, daysPer, dayArts, wanderTage, TABS }
   });
