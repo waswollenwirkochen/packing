@@ -455,7 +455,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, .btn:focus-vi
 .trip-switch { display: flex; align-items: center; gap: .5rem; margin-left: 1rem; min-width: 0; flex: 0 1 340px; }
 .trip-switch select { min-width: 0; flex: 1; background: rgba(255,255,255,.1); color: #f4eee1; border: 1px solid rgba(255,255,255,.25); border-radius: 9px; padding: .38rem .55rem; font-weight: 500; }
 .trip-switch select option { color: var(--ink); }
-.sync-wrap { display: inline-flex; align-items: center; gap: .3rem; font-size: .75rem; color: #c9d5c4; white-space: nowrap; }
+.sync-wrap { cursor: pointer; display: inline-flex; align-items: center; gap: .3rem; font-size: .75rem; color: #c9d5c4; white-space: nowrap; }
 .sync-dot { width: 9px; height: 9px; border-radius: 50%; background: #9aa59f; display: inline-block; }
 .sync-dot.ok { background: #8fd17a; }
 .sync-dot.busy { background: #f0c96a; animation: pulse 1s infinite alternate; }

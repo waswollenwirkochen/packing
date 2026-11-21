@@ -223,8 +223,18 @@
     }
   }
 
+  // Reisen ohne eigenen Schlüssel (z. B. aus einer Importdatei) gehören mir – Schlüssel anlegen
+  function ensureKeys() {
+    let added = 0;
+    Object.keys(state.trips).forEach((id) => { if (!state.keys[id]) { state.keys[id] = { k: S.randomKey(), owner: true }; added++; } });
+    if (added) C.store.save();
+    return added;
+  }
+  PL.ensureKeys = ensureKeys;
+
   function syncAll(opts = {}) {
     if (!S.available) return Promise.resolve();
+    ensureKeys();
     const ids = Object.keys(state.trips).filter(isShared).concat(Object.keys(state.keys).filter((id) => !state.trips[id] && cfgFor(id)));
     if (!state.syncCfg && !ids.length) { setStatus("off"); return Promise.resolve(); }
     if (!online()) { setStatus("offline", "Offline – Änderungen werden später synchronisiert."); return Promise.resolve(); }
@@ -235,15 +245,23 @@
         if (state.syncCfg) await pullKeyring();
         const all = new Set([...Object.keys(state.trips), ...Object.keys(state.keys)]);
         const only = opts.only ? [opts.only] : [...all];
+        const errs = [];
         for (const id of only) {
           if (!cfgFor(id)) continue;
-          if (!opts.pushOnly) await pullTrip(id);
-          if (state.trips[id]) { await uploadFiles(state.trips[id]); await pushTrip(id); }
+          try {
+            if (!opts.pushOnly) await pullTrip(id);
+            if (state.trips[id]) { await uploadFiles(state.trips[id]); await pushTrip(id); }
+          } catch (e) {
+            if (!online() || e.status === 0) throw e;
+            console.error(id, e);
+            errs.push(`„${state.trips[id] ? tripName(state.trips[id]) : id.slice(0, 6)}“: ${e.message || e}`);
+          }
         }
         await processDeletes();
         if (state.syncCfg) await pushKeyring();
         C.store.save();
-        setStatus("ok");
+        if (errs.length) setStatus("error", errs.join(" · "));
+        else setStatus("ok");
         if (JSON.stringify(state.trips) !== before) C.render();
         prefetchFiles();
       } catch (e) {
@@ -308,14 +326,26 @@
     if (dot) { dot.className = "sync-dot " + cls; dot.title = title; dot.setAttribute("aria-label", title); $(".sync-label", dot.parentElement).textContent = cls === "ok" ? "sync" : cls === "busy" ? "…" : cls === "offline" ? "offline" : cls === "error" ? "Fehler" : "lokal"; }
   }
   PL.renderHeader = renderHeader;
+  // Tippen auf den Sync-Status zeigt, was los ist
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest(".sync-wrap")) return;
+    const dot = $("#syncState"); const title = (dot && dot.title) || "";
+    if (sync.status !== "error") return toast(title || "Nur auf diesem Gerät gespeichert");
+    openModal({
+      title: "Synchronisierung",
+      body: `<p>${esc(title)}</p><p class="hint">Die übrigen Urlaube wurden trotzdem abgeglichen.</p>`,
+      foot: `<button class="btn" data-close>Schließen</button><button class="btn primary" data-resync>Erneut versuchen</button>`,
+      onMount: (m) => $("[data-resync]", m).addEventListener("click", () => { closeModal(); syncAll().then(() => C.render()); })
+    });
+  });
 
   // =========================================================
   //  URLAUBE (Startseite)
   // =========================================================
   function daysUntil(iso) { return iso ? Math.round((new Date(iso + "T12:00:00") - new Date(C.todayISO() + "T12:00:00")) / 864e5) : null; }
   function tripBadge(t) {
-    const k = state.keys[t.id] || {};
-    if (!k.owner) return `<span class="badge shared">${ICONS.users} eingeladen</span>`;
+    const k = state.keys[t.id] || { owner: true };
+    if (k.owner === false) return `<span class="badge shared">${ICONS.users} eingeladen</span>`;
     if (isShared(t.id)) return `<span class="badge vegan">${ICONS.lock} verschlüsselt synchronisiert</span>`;
     return `<span class="badge">nur auf diesem Gerät</span>`;
   }
