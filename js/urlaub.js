@@ -104,8 +104,19 @@
     }
     if (base && base.sha === remote.sha) return;
     let remoteDoc;
-    try { remoteDoc = await S.decJSON(key, remote.content); }
-    catch { throw new Error("Urlaub konnte nicht entschlüsselt werden – Schlüssel passt nicht."); }
+    // Schlüssel probieren: eigener, dann der aus dem Schlüsselbund (falls zwei Geräte verschiedene erzeugt haben)
+    const cands = [...new Set([key, state.syncCfg && state.syncCfg.ringKeys && state.syncCfg.ringKeys[id]].filter(Boolean))];
+    for (const k of cands) {
+      try { remoteDoc = await S.decJSON(k, remote.content); if (k !== key) { state.keys[id].k = k; delete state.base[id]; } break; } catch { /* nächster */ }
+    }
+    if (!remoteDoc) {
+      if (state.keys[id].owner && state.trips[id]) {
+        // Niemand hier kann die Datei lesen – mit dem eigenen Schlüssel neu schreiben, damit alle Geräte wieder zusammenfinden
+        state.base[id] = { sha: remote.sha, doc: null };
+        return;
+      }
+      throw new Error("Urlaub konnte nicht entschlüsselt werden – Schlüssel passt nicht. Bitte zuerst am Gerät synchronisieren, auf dem der Urlaub angelegt wurde.");
+    }
     const local = state.trips[id];
     const merged = local ? S.merge3(base && base.doc, local, remoteDoc) : remoteDoc;
     // eigene Kopien – der Basisstand darf nie dasselbe Objekt wie der lokale Urlaub sein
@@ -116,7 +127,7 @@
     const cfg = cfgFor(id), key = state.keys[id] && state.keys[id].k, t = state.trips[id];
     if (!cfg || !key || !t) return;
     const base = state.base[id];
-    if (base && base.sha && S.eq(base.doc, t)) return;
+    if (base && base.sha && base.doc && S.eq(base.doc, t)) return;
     const doc = clone(t);
     try {
       const res = await S.putFile(cfg, `trips/${id}.enc`, await S.encJSON(key, doc), base && base.sha, `Urlaub ${id.slice(0, 6)} aktualisiert`);
@@ -135,7 +146,8 @@
     const wrap = JSON.parse(atob(f.content));
     let ring;
     try { ring = await S.decJSON(cfg.mk, wrap.data); } catch { throw new Error("Passwort passt nicht zum Schlüsselbund im Daten-Repo."); }
-    cfg.ringSha = f.sha;
+    cfg.ringSha = f.sha; cfg.ringCache = ring;
+    cfg.ringKeys = Object.fromEntries(Object.entries(ring.trips || {}).map(([id, e]) => [id, e.k]));
     Object.entries(ring.trips || {}).forEach(([id, e]) => {
       if ((ring.deleted || []).includes(id) || state.deleted.includes(id)) return;
       if (!state.keys[id]) state.keys[id] = { k: e.k, owner: true };
@@ -148,14 +160,21 @@
   async function pushKeyring() {
     const cfg = state.syncCfg; if (!cfg) return;
     const trips = {};
-    Object.entries(state.keys).forEach(([id, k]) => { if (k.owner && state.trips[id]) trips[id] = { k: k.k }; });
     const deleted = [...new Set([...(cfg.ringDeleted || []), ...state.deleted])];
+    // auch Urlaube behalten, die dieses Gerät (noch) nicht laden konnte – sonst gehen sie anderen verloren
+    Object.entries(cfg.ringKeys || {}).forEach(([id, k]) => { if (!deleted.includes(id)) trips[id] = { k }; });
+    Object.entries(state.keys).forEach(([id, k]) => {
+      if (!k.owner || deleted.includes(id)) return;
+      if (state.trips[id]) trips[id] = { k: k.k };
+      else if (!trips[id]) trips[id] = { k: k.k };
+    });
     const ring = { v: 1, trips, deleted };
     if (cfg.ringCache && S.eq(cfg.ringCache, ring)) return;
     const content = btoa(JSON.stringify({ v: 1, salt: cfg.salt, data: await S.encJSON(cfg.mk, ring) }));
     try {
       const res = await S.putFile(cfg, "keys/keyring.enc", content, cfg.ringSha, "Schlüsselbund aktualisiert");
       cfg.ringSha = res.content.sha; cfg.ringCache = ring; cfg.ringDeleted = deleted;
+      cfg.ringKeys = Object.fromEntries(Object.entries(trips).map(([id, e]) => [id, e.k]));
     } catch (e) {
       if (e.status === 409 || e.status === 422) { await pullKeyring(); return pushKeyring(); }
       throw e;
