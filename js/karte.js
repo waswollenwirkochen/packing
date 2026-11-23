@@ -26,6 +26,13 @@
     route: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="5" cy="15" r="2"/><circle cx="15" cy="5" r="2"/><path d="M6.5 13.5c2-2 1-5 4-6s2.5-1.5 3-1"/></svg>'
   };
   const colorOf = (t) => { const ids = Object.keys(state.trips).sort(); return COLORS[Math.max(0, ids.indexOf(t.id)) % COLORS.length]; };
+  // Etappe = Weg zum Ort: „Berlin → Glasgow“; der erste Ort ist der Start
+  function legName(t, oid) {
+    const orte = t.orte || []; const i = orte.findIndex((o) => o.id === oid);
+    if (i < 0) return "Reise allgemein";
+    return i === 0 ? orte[0].name : `${orte[i - 1].name} → ${orte[i].name}`;
+  }
+  const legOpts = (t, cur, prefix = "") => (t.orte || []).map((o) => `<option value="${o.id}" ${o.id === cur ? "selected" : ""}>${prefix}${esc(legName(t, o.id))}</option>`).join("");
   const located = (t) => (t.orte || []).filter((o) => Number.isFinite(o.lat) && Number.isFinite(o.lon));
 
   // ---------- Leaflet (Kartenbibliothek, wird erst bei Bedarf geladen) ----------
@@ -354,7 +361,7 @@
     const el = document.createElement("div"); el.className = "pv"; el.setAttribute("role", "dialog"); el.setAttribute("aria-label", "Foto");
     document.body.appendChild(el); document.body.classList.add("pv-open");
     viewer = { el, t, list };
-    const ortName = (oid) => ((t.orte || []).find((o) => o.id === oid) || {}).name || "Reise allgemein";
+    const ortName = (oid) => legName(t, oid);
     const show = async () => {
       const f = list[idx]; if (!f) return closeViewer();
       el.innerHTML = `<div class="pv-top"><span class="pv-count">${idx + 1} / ${list.length}</span><span class="pv-title">${esc(ortName(f.ort))}</span><button class="pv-btn" data-pv="close" aria-label="Schließen">${I.x}</button></div>
@@ -363,7 +370,7 @@
         ${idx < list.length - 1 ? `<button class="pv-nav next" data-pv="next" aria-label="Nächstes Foto">›</button>` : ""}
         <div class="pv-bar">
           <span class="pv-meta">${f.am ? fmtDate(f.am.slice(0, 10), { day: "numeric", month: "short", year: "numeric" }) : ""}${f.von && person(t, f.von) ? " · " + esc(pname(t, person(t, f.von))) : ""}</span>
-          <label class="pv-ort">Etappe <select data-pv-ort><option value="">Reise allgemein</option>${(t.orte || []).map((o, i) => `<option value="${o.id}" ${o.id === f.ort ? "selected" : ""}>${i + 1}. ${esc(o.name)}</option>`).join("")}</select></label>
+          <label class="pv-ort">Etappe <select data-pv-ort><option value="">Reise allgemein</option>${legOpts(t, f.ort)}</select></label>
           <span class="pv-actions">
             <button class="pv-btn ${t.cover === f.id ? "on" : ""}" data-pv="cover" title="Als Profilbild der Reise">${I.star}<span>Profilbild</span></button>
             <a class="pv-btn" data-pv-dl download="${esc((f.name || "foto").replace(/\.\w+$/, ""))}.${isVideo(f) ? ((f.mime || "").includes("webm") ? "webm" : (f.mime || "").includes("quicktime") ? "mov" : "mp4") : "jpg"}" title="Herunterladen">${I.dl}</a>
@@ -483,7 +490,7 @@
   function fitAll() { if (!map) return; const p = boundsOf(Object.values(state.trips)); if (p.length) map.fitBounds(p, { padding: [40, 40], maxZoom: 9 }); }
   function fitTrip(t) { if (!map || !t) return; const p = boundsOf([t]); if (p.length) map.fitBounds(p, { padding: [50, 50], maxZoom: 12 }); }
   function select(id, keepView) {
-    if (state.ui.mapTrip !== id) { state.ui.mapDetail = "ueberblick"; state.ui.fotoFilter = "alle"; }
+    if (state.ui.mapTrip !== id) { state.ui.mapDetail = "ueberblick"; state.ui.fotoFilter = "alle"; sel.on = false; sel.ids.clear(); }
     state.ui.mapTrip = id; C.store.save();
     renderSide(); draw(); if (!keepView) fitTrip(state.trips[id]);
   }
@@ -611,7 +618,8 @@
       </div>
       <p class="hint" style="margin-top:.5rem">Tipp: In Outdooractive die Tour öffnen → „GPX herunterladen“. Dieselbe Datei kannst du auf deine Suunto übertragen und hier hochladen.</p>`;
   }
-  const tile = (f) => `<button class="jg-tile ${isVideo(f) ? "is-video" : ""}" data-photo="${f.id}" data-ar="${f.w && f.h ? (f.w / f.h).toFixed(3) : 1.5}" title="${esc(f.name || "")}"><img data-thumb="${f.id}" alt="${esc(f.name || "")}" loading="lazy">${isVideo(f) ? `<span class="vid-badge">▶ ${fmtDauer(f.dauer)}</span>` : ""}</button>`;
+  const sel = { on: false, ids: new Set() };
+  const tile = (f) => `<button class="jg-tile ${isVideo(f) ? "is-video" : ""} ${sel.ids.has(f.id) ? "sel" : ""}" data-photo="${f.id}" data-ar="${f.w && f.h ? (f.w / f.h).toFixed(3) : 1.5}" title="${esc(f.name || "")}"><img data-thumb="${f.id}" alt="${esc(f.name || "")}" loading="lazy">${isVideo(f) ? `<span class="vid-badge">▶ ${fmtDauer(f.dauer)}</span>` : ""}<span class="sel-check" aria-hidden="true">✓</span></button>`;
   function fotoList(t) {
     const flt = state.ui.fotoFilter || "alle";
     return (t.fotos || []).filter((f) => flt === "alle" || (flt === "_" ? !f.ort : f.ort === flt)).sort((a, b) => (a.am || "").localeCompare(b.am || ""));
@@ -623,17 +631,24 @@
     const count = (k) => all.filter((f) => (k === "_" ? !f.ort : f.ort === k)).length;
     // Bei „Alle“: Abschnitte je Etappe (in Reihenfolge der Route), sonst eine Galerie
     const sections = flt === "alle"
-      ? (all.length ? [...orte.map((o, i) => [`${i + 1}. ${o.name}`, all.filter((f) => f.ort === o.id), o.id]), ["Reise allgemein", all.filter((f) => !f.ort || !orte.some((o) => o.id === f.ort)), ""]] : [])
+      ? (all.length ? [...orte.map((o) => [legName(t, o.id), all.filter((f) => f.ort === o.id), o.id]), ["Reise allgemein", all.filter((f) => !f.ort || !orte.some((o) => o.id === f.ort)), ""]] : [])
       : [[null, fotoList(t), flt === "_" ? "" : flt]];
     return `${U.whoAmI(t)}
       <div class="foto-tools" data-fdrop>
         <label class="btn sm primary">${I.photo} Hinzufügen<input type="file" accept="image/*,video/*" multiple data-fupload hidden></label>
-        <select class="input" data-fort><option value="">zu: Reise allgemein</option>${orte.map((o, i) => `<option value="${o.id}" ${flt === o.id ? "selected" : ""}>zu: ${i + 1}. ${esc(o.name)}</option>`).join("")}</select>
+        <select class="input" data-fort><option value="">zu: Reise allgemein</option>${legOpts(t, flt, "zu: ")}</select>
         <span class="small muted">Fotos & Videos – oder einfach hierher ziehen</span>
       </div>
-      ${all.length ? `<div class="foto-filter">${[["alle", `Alle (${all.length})`], ...orte.map((o) => [o.id, `${o.name} (${count(o.id)})`]), ["_", `Allgemein (${count("_")})`]]
+      ${all.length ? `<div class="foto-filter">${[["alle", `Alle (${all.length})`], ...orte.map((o) => [o.id, `${legName(t, o.id)} (${count(o.id)})`]), ["_", `Allgemein (${count("_")})`]]
         .map(([k, l]) => `<button class="chip chip-s ${flt === k ? "on" : ""} ${k !== "alle" && !count(k) && flt !== k ? "is-empty" : ""}" data-ffilter="${k}">${esc(l)}</button>`).join("")}</div>` : ""}
-      ${all.length > 1 && orte.length ? `<p class="small muted jg-tip">Tipp: Kachel auf eine andere Etappe ziehen, um sie umzuordnen${matchMedia("(pointer: coarse)").matches ? " (kurz gedrückt halten)" : ""}.</p>` : ""}
+      ${all.length ? `<div class="sel-bar ${sel.on ? "on" : ""}">${sel.on
+        ? `<b>${sel.ids.size} ausgewählt</b>
+           <button class="btn sm" data-selall>${sel.ids.size === all.length ? "Keine" : "Alle"}</button>
+           <select class="input" data-selmove ${sel.ids.size ? "" : "disabled"}><option value="">Etappe zuweisen …</option><option value="_">Reise allgemein</option>${legOpts(t, null)}</select>
+           <button class="btn sm danger" data-seldel ${sel.ids.size ? "" : "disabled"}>${U.ICONS.trash} Löschen</button>
+           <button class="btn sm primary" data-seldone>Fertig</button>`
+        : `<button class="btn sm" data-selon>Mehrere auswählen</button>`}</div>` : ""}
+      ${all.length > 1 && orte.length && !sel.on ? `<p class="small muted jg-tip">Tipp: Kachel auf eine andere Etappe ziehen, um sie umzuordnen${matchMedia("(pointer: coarse)").matches ? " (kurz gedrückt halten)" : " – mit Strg/⌘ oder Umschalt mehrere auswählen"}.</p>` : ""}
       ${sections.map(([h, l, oid]) => `<div class="jg-sec ${l.length ? "" : "is-empty"}" data-drop-ort="${oid}">${h ? `<h4 class="jg-head">${esc(h)} <span class="muted small">${l.length}</span></h4>` : ""}${l.length ? `<div class="jg">${l.map(tile).join("")}</div>` : `<div class="jg-empty">hierher ziehen</div>`}</div>`).join("") || `<p class="muted small">Noch keine Fotos. Profilbild, Etappen-Vorschau auf der Karte und Überblick füllen sich automatisch, sobald welche da sind.</p>`}`;
   }
   function reviewHtml(t) {
@@ -686,6 +701,23 @@
     if ((x = q("[data-tdl]"))) return downloadGpx(t, t.tracks.find((y) => y.id === x.dataset.tdl));
     if ((x = q("[data-tdel]"))) { if (!armed(x, "×?")) return; return removeTrack(t, x.dataset.tdel); }
     if ((x = q("[data-ffilter]"))) { state.ui.fotoFilter = x.dataset.ffilter; return renderSide(); }
+    if (q("[data-selon]")) { sel.on = true; sel.ids.clear(); return renderSide(); }
+    if (q("[data-seldone]")) { sel.on = false; sel.ids.clear(); return renderSide(); }
+    if (q("[data-selall]")) { const all = (t.fotos || []).map((f) => f.id); if (sel.ids.size === all.length) sel.ids.clear(); else all.forEach((id) => sel.ids.add(id)); return renderSide(); }
+    if ((x = q("[data-seldel]"))) {
+      if (!sel.ids.size || !armed(x, `${sel.ids.size} löschen?`)) return;
+      sel.ids.forEach((id) => { U.dropBlob(t, id); U.dropBlob(t, id + "_t"); if (t.cover === id) t.cover = ""; });
+      t.fotos = (t.fotos || []).filter((f) => !sel.ids.has(f.id)); toast(`${sel.ids.size} gelöscht.`);
+      sel.ids.clear(); sel.on = false; C.commit(); if (U.isShared(t.id)) U.syncAll({ only: t.id }); return;
+    }
+    if ((x = q(".jg-tile[data-photo]")) && (sel.on || e.ctrlKey || e.metaKey || e.shiftKey)) {
+      sel.on = true; const id = x.dataset.photo;
+      if (e.shiftKey && sel.last) { // Bereich auswählen
+        const ids = $$(".jg-tile[data-photo]", $("#kSide")).map((b) => b.dataset.photo); const a = ids.indexOf(sel.last), b = ids.indexOf(id);
+        ids.slice(Math.min(a, b), Math.max(a, b) + 1).forEach((y) => sel.ids.add(y));
+      } else sel.ids.has(id) ? sel.ids.delete(id) : sel.ids.add(id);
+      sel.last = id; return renderSide();
+    }
     if ((x = q("[data-photo]"))) {
       // Reihenfolge wie angezeigt
       const ids = $$("[data-photo]", $("#kSide")).map((b) => b.dataset.photo);
@@ -711,6 +743,11 @@
     if (el.dataset.onights) { const o = t.orte.find((x) => x.id === el.dataset.onights); if (o) o.naechte = Math.max(0, parseInt(el.value) || 0); return C.commit(); }
     if (el.dataset.rtext) { const me = C.myId(t); if (!me) return; t.reviews ||= {}; const r = (t.reviews[me] ||= {}); r[el.dataset.rtext] = el.value.trim(); return C.save(); }
     if (el.dataset.gfile != null && el.files.length) { const tag = $("[data-gtag]").value; for (const f of el.files) await importGpx(t, f, tag); return; }
+    if (el.dataset.selmove != null && el.value) {
+      const to = el.value === "_" ? "" : el.value; let n = 0;
+      (t.fotos || []).forEach((f) => { if (sel.ids.has(f.id)) { f.ort = to; n++; } });
+      toast(`${n} ${n === 1 ? "Datei" : "Dateien"} zu „${legName(t, to)}“.`); sel.ids.clear(); sel.on = false; return C.commit();
+    }
     if (el.dataset.fupload != null && el.files.length) { await addPhotos(t, el.files, $("[data-fort]").value); return; }
   }
   async function onSideSubmit(e) {
@@ -768,10 +805,11 @@
     d.ghost.remove(); d.el.classList.remove("dragging"); document.body.classList.remove("is-dragging");
     const side = $("#kSide"); side && side.classList.remove("tile-dragging"); $$("#kSide .drop-on").forEach((z) => z.classList.remove("drop-on"));
     const t = state.trips[state.ui.mapTrip]; if (!t || d.target == null) return;
-    const f = (t.fotos || []).find((x) => x.id === d.id); if (!f || (f.ort || "") === d.target) return;
-    f.ort = d.target;
+    const ids = sel.ids.has(d.id) ? [...sel.ids] : [d.id];
+    const fs = (t.fotos || []).filter((x) => ids.includes(x.id) && (x.ort || "") !== d.target); if (!fs.length) return;
+    fs.forEach((f) => (f.ort = d.target)); if (ids.length > 1) { sel.ids.clear(); sel.on = false; }
     const o = (t.orte || []).find((x) => x.id === d.target);
-    toast(`Zu „${o ? o.name : "Reise allgemein"}“ verschoben.`);
+    toast(`${fs.length > 1 ? fs.length + " Dateien" : "Zu"} ${fs.length > 1 ? "zu " : ""}„${o ? legName(t, o.id) : "Reise allgemein"}“ verschoben.`);
     C.commit();
   };
   window.addEventListener("pointerup", endTileDrag);
