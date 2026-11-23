@@ -470,20 +470,6 @@
           ${state.edit ? `<button class="chip add" data-act="add-mod">${ICON.plus} Modul</button>` : ""}
         </div>
 
-        <div class="card progress-wrap">
-          <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="${total}" aria-valuenow="${done}">
-            <div class="p-done" style="width:${total ? (done / total) * 100 : 0}%"></div>
-            <div class="p-skip" style="width:${total ? (skip / total) * 100 : 0}%"></div>
-          </div>
-          <div class="progress-stats">
-            <span><b>${done}</b> von ${total - skip} erledigt</span>
-            ${skip ? `<span><b>${skip}</b> bleiben zu Hause</span>` : ""}
-            ${openShared ? `<span class="badge warn">${openShared} gemeinsame Items: noch niemand bringt sie mit</span>` : ""}
-            ${weight ? `<span>Gewicht ca. <b>${fmtG(weight)}</b></span>` : ""}
-            ${total && done === total - skip ? `<span class="badge vegan">Alles gepackt – gute Reise!</span>` : ""}
-          </div>
-        </div>
-
         <div class="card toolbar no-print">
           <div class="seg" role="group" aria-label="Gruppieren nach">
             <button data-act="group" data-id="modul" class="${state.ui.groupBy === "modul" ? "on" : ""}">Nach Modul</button>
@@ -494,6 +480,8 @@
             <select class="input" data-act="view-person"><option value="alle">Alle Items</option>${t.personen.map((p) => `<option value="${p.id}" ${state.ui.viewPerson === p.id ? "selected" : ""}>Was bringt ${esc(pname(t, p))} mit?</option>`).join("")}</select></label>` : ""}
           <label class="check"><input type="checkbox" data-act="hide-packed" ${state.ui.hidePacked ? "checked" : ""}> Gepacktes ausblenden</label>
           <label class="check"><input type="checkbox" data-act="hide-opt" ${state.ui.hideOptional ? "checked" : ""}> Optionales ausblenden</label>
+          <label class="check"><input type="checkbox" data-act="hide-away" ${state.ui.hideAway ? "checked" : ""}> „Bleibt zu Hause“ ausblenden</label>
+          ${openShared ? `<span class="badge warn">${openShared} gemeinsame Items: noch niemand bringt sie mit</span>` : ""}
           <span class="spacer"></span>
           <button class="btn sm" data-act="share">${ICON.share} Teilen</button>
           <button class="btn sm" data-act="print">${ICON.print} Drucken</button>
@@ -565,9 +553,10 @@
         if (state.ui.groupBy === "modul" && gr && gr !== lastGrp) { rows += `<li class="subgroup">${esc(gr)}</li>`; lastGrp = gr; }
         rows += itemRow(t, i);
       });
-      if (away.length) rows += `<li class="subgroup away-head">Bleibt diesmal zu Hause</li>` + away.map((i) => itemRow(t, i)).join("");
+      if (away.length && !state.ui.hideAway) rows += `<li class="subgroup away-head">Bleibt diesmal zu Hause</li>` + away.map((i) => itemRow(t, i)).join("");
       if (!rows && g.all.length) rows = `<li class="item muted small" style="cursor:default">Alles erledigt ✓</li>`;
-      g.h = 2.2 + list.length + away.length + (away.length ? 0.8 : 0) + new Set(list.map((i) => grpOf(t, i)).filter(Boolean)).size * 0.8;
+      const awayN = state.ui.hideAway ? 0 : away.length;
+      g.h = 2.2 + list.length + awayN + (awayN ? 0.8 : 0) + new Set(list.map((i) => grpOf(t, i)).filter(Boolean)).size * 0.8;
       return `<section class="card group" ${g.modul && state.ui.groupBy !== "phase" ? `data-drop-mod="${g.modul}"` : ""}>
         <div class="group-head"><h3>${esc(g.name)}</h3>${g.info ? `<span class="muted small">${esc(g.info)}</span>` : ""}
           <span class="count">${d}/${n}</span><span class="mini"><i style="width:${n ? (d / n) * 100 : 0}%"></i></span>
@@ -754,6 +743,7 @@
       case "hide-packed": state.ui.hidePacked = a.checked; break;
       case "hide-opt": state.ui.hideOptional = a.checked; break;
       case "all-others": state.ui.allOthers = a.checked; break;
+      case "hide-away": state.ui.hideAway = a.checked; break;
       default: return;
     }
     commit();
