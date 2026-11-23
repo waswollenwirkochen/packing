@@ -167,6 +167,8 @@
     state.contacts = state.contacts.filter((c) => !cfg.contactsGone.includes(c.id));
     (ring.contacts || []).forEach((c) => { if (!cfg.contactsGone.includes(c.id) && !state.contacts.some((x) => x.id === c.id)) state.contacts.push(c); });
     if (ring.profile && ring.profile.name && !state.profile.name) state.profile.name = ring.profile.name;
+    if (ring.gk && !cfg.gk) cfg.gk = ring.gk;
+    if (ring.admin && !cfg.ring) cfg.admin = ring.admin;
     (ring.deleted || []).forEach((id) => {
       if (state.keys[id] && state.keys[id].owner) { delete state.trips[id]; delete state.keys[id]; delete state.base[id]; }
     });
@@ -183,7 +185,7 @@
       if (state.trips[id]) trips[id] = { k: k.k };
       else if (!trips[id]) trips[id] = { k: k.k };
     });
-    const ring = { v: 1, trips, deleted, contacts: state.contacts, contactsGone: cfg.contactsGone || [], profile: { name: state.profile.name || "" } };
+    const ring = { v: 1, trips, deleted, contacts: state.contacts, contactsGone: cfg.contactsGone || [], profile: { name: state.profile.name || "" }, gk: cfg.gk, admin: cfg.ring ? undefined : cfg.admin };
     if (cfg.ringCache && S.eq(cfg.ringCache, ring)) return;
     const content = btoa(JSON.stringify({ v: 1, salt: cfg.salt, data: await S.encJSON(cfg.mk, ring) }));
     try {
@@ -220,14 +222,19 @@
   async function readInbox(c) {
     const cfg = state.syncCfg; cfg.inbox ||= {};
     const f = await S.getFile(cfg, `inbox/${c.id}.enc`);
-    let trips = {}, rings = [];
+    let trips = {}, rings = [], gk = "";
     if (f) {
-      try { const d = await S.decJSON(c.k, f.content); trips = d.trips || {}; rings = d.rings || []; }
-      catch { sync.broken.add(c.id); cfg.inbox[c.id] = null; return null; }
+      try { const d = await S.decJSON(c.k, f.content); trips = d.trips || {}; rings = d.rings || []; gk = d.gk || ""; }
+      catch {
+        // Selbst angelegte Verknüpfung: maßgeblich ist der Schlüssel im Link – unlesbares Postfach neu schreiben
+        if (isMine(c)) { sync.broken.delete(c.id); cfg.inbox[c.id] = { sha: f.sha, trips: {}, rings: [], gk: "", repair: true }; return cfg.inbox[c.id]; }
+        sync.broken.add(c.id); cfg.inbox[c.id] = null; return null;
+      }
     }
     sync.broken.delete(c.id);
     rings = [...new Set([...rings, ...(c.rings || [])])];
-    cfg.inbox[c.id] = { sha: f ? f.sha : null, trips, rings };
+    cfg.inbox[c.id] = { sha: f ? f.sha : null, trips, rings, gk };
+    if (gk && !cfg.gk) cfg.gk = gk; // Schlüssel für die gemeinsamen Gerichte
     return cfg.inbox[c.id];
   }
   async function pullInboxes() {
@@ -252,10 +259,11 @@
         const want = { ...box.trips };
         Object.values(state.trips).forEach((t) => { if (tripHas(t, c.name) && state.keys[t.id] && !isRemoved(t.id) && !want[t.id]) want[t.id] = state.keys[t.id].k; });
         const rings = [...new Set([...(box.rings || []), ...(cfg.ring ? [cfg.ring] : [])])];
-        if (box.sha && S.eq(want, box.trips) && S.eq(rings, box.rings || [])) break;
+        const gk = box.gk || cfg.gk || "";
+        if (box.sha && !box.repair && S.eq(want, box.trips) && S.eq(rings, box.rings || []) && gk === (box.gk || "")) break;
         try {
-          const res = await S.putFile(cfg, `inbox/${c.id}.enc`, await S.encJSON(c.k, { v: 1, trips: want, rings }), box.sha, "Gemeinsame Urlaube aktualisiert");
-          cfg.inbox[c.id] = { sha: res.content.sha, trips: want, rings };
+          const res = await S.putFile(cfg, `inbox/${c.id}.enc`, await S.encJSON(c.k, { v: 1, trips: want, rings, ...(gk ? { gk } : {}) }), box.sha, "Gemeinsame Urlaube aktualisiert");
+          cfg.inbox[c.id] = { sha: res.content.sha, trips: want, rings, gk };
           delete c.rings;
           break;
         } catch (e) {
@@ -265,6 +273,89 @@
       }
     }
   }
+
+  // ---------- Wer bin ich, wem gehört welche Verknüpfung ----------
+  // Admin = wer das Daten-Repo mit eigenem Token eingerichtet hat (kein eigener Schlüsselbund unter keys/c_…).
+  const isAdmin = () => !!(state.syncCfg && !state.syncCfg.ring);
+  const whoId = () => { const cfg = state.syncCfg; return cfg ? (cfg.ring ? cfg.ring.replace(/^keys\/c_|\.enc$/g, "") : "admin") : "local"; };
+  PL.whoId = whoId; PL.isAdmin = isAdmin;
+  function inviter() { try { return dec64(state.syncCfg.invite); } catch { return {}; } }
+  // eigene Verknüpfung = selbst angelegt; empfangene (über den Link einer anderen Person) dürfen nicht bearbeitet werden
+  function isMine(c) {
+    if (c.mine !== undefined) return c.mine;
+    if (isAdmin()) return true;
+    const inv = inviter();
+    return !(c.id === inv.c || (inv.f && norm(c.name) === norm(inv.f)));
+  }
+  async function ensureAdmin() {
+    const cfg = state.syncCfg; if (!isAdmin()) return;
+    if (!cfg.gk) cfg.gk = S.randomKey();
+    if (!cfg.admin) cfg.admin = await S.rsaGen();
+    if (sync.pubOk === JSON.stringify(cfg.admin.pub)) return;
+    const f = await S.getFile(cfg, "admin/pub.json");
+    const want = JSON.stringify({ v: 1, jwk: cfg.admin.pub });
+    if (!f || atob(f.content) !== want) await S.putFile(cfg, "admin/pub.json", btoa(want), f && f.sha, "Admin-Schlüssel");
+    sync.pubOk = JSON.stringify(cfg.admin.pub);
+  }
+  async function adminPub() {
+    const cfg = state.syncCfg;
+    if (cfg.admin) return cfg.admin.pub;
+    if (sync.adminPub === undefined) { const f = await S.getFile(cfg, "admin/pub.json"); sync.adminPub = f ? JSON.parse(atob(f.content)).jwk : null; }
+    return sync.adminPub;
+  }
+  // Jede Verknüpfung wird für den Admin protokolliert – verschlüsselt, nur der Admin kann es lesen.
+  async function registerLinks() {
+    const cfg = state.syncCfg; const pub = await adminPub(); if (!pub) return;
+    const put = async (path, obj, msg) => {
+      try { await S.putFile(cfg, path, await S.sealJSON(pub, obj), null, msg); }
+      catch (e) { if (e.status !== 422 && e.status !== 409) throw e; } // gibt es schon
+    };
+    for (const c of state.contacts) {
+      if (c.reg || !isMine(c)) continue;
+      if (!c.fp) c.fp = await fp(c.k);
+      await put(`admin/links/${c.id}.enc`, { id: c.id, von: state.profile.name || (isAdmin() ? "Admin" : ""), vonId: whoId(), an: c.name, am: c.am || null, fp: c.fp }, "Verknüpfung protokolliert");
+      c.reg = 1;
+    }
+    for (const ev of [...(cfg.regEv || [])]) {
+      await put(`admin/links/${ev.id}.${ev.typ}.enc`, ev, ev.typ === "ok" ? "Verknüpfung angenommen" : "Verknüpfung ersetzt");
+      cfg.regEv = cfg.regEv.filter((x) => x !== ev);
+    }
+  }
+  // ---------- Gemeinsame Gerichte (für alle in der App) ----------
+  function mergeShared(a, b) {
+    const gone = new Map();
+    [...(a.gone || []), ...(b.gone || [])].forEach((g) => { const o = gone.get(g.id); if (!o || o.am < g.am) gone.set(g.id, g); });
+    const items = {};
+    ["rezepte", "zutaten"].forEach((k) => {
+      const m = new Map();
+      [...(b[k] || []), ...(a[k] || [])].forEach((x) => { const o = m.get(x.id); if (!o || (x.am || 0) >= (o.am || 0)) m.set(x.id, x); });
+      items[k] = [...m.values()];
+    });
+    const newest = new Map(); ["rezepte", "zutaten"].forEach((k) => items[k].forEach((x) => newest.set(x.id, Math.max(newest.get(x.id) || 0, x.am || 0))));
+    const g = [...gone.values()].filter((x) => !(newest.get(x.id) > x.am)).sort((p, q) => p.id.localeCompare(q.id));
+    const dead = new Set(g.map((x) => x.id));
+    const out = { rezepte: [], zutaten: [], gone: g };
+    ["rezepte", "zutaten"].forEach((k) => { out[k] = items[k].filter((x) => !dead.has(x.id)).sort((p, q) => String(p.id).localeCompare(String(q.id))); });
+    return out;
+  }
+  async function syncShared() {
+    const cfg = state.syncCfg; if (!cfg || !cfg.gk) return false;
+    const me = whoId(), before = JSON.stringify(state.shared);
+    ["rezepte", "zutaten"].forEach((k) => (state.shared[k] || []).forEach((x) => { if (x.vonId === "local") { x.vonId = me; x.von = x.von || state.profile.name || ""; } }));
+    const empty = { rezepte: [], zutaten: [], gone: [] };
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const f = await S.getFile(cfg, "shared/rezepte.enc");
+      let remote = empty;
+      if (f) { try { remote = await S.decJSON(cfg.gk, f.content); } catch { console.warn("Gemeinsame Gerichte: Schlüssel passt nicht"); return false; } }
+      const merged = mergeShared(state.shared, remote);
+      state.shared = merged; if (PL.rezDirty) PL.rezDirty();
+      if (f && S.eq(merged, mergeShared(empty, remote))) break;
+      try { await S.putFile(cfg, "shared/rezepte.enc", await S.encJSON(cfg.gk, merged), f && f.sha, "Gemeinsame Gerichte aktualisiert"); break; }
+      catch (e) { if (e.status !== 409 && e.status !== 422) throw e; }
+    }
+    return JSON.stringify(state.shared) !== before;
+  }
+  PL.sharedChanged = () => { clearTimeout(sync.shTimer); sync.shTimer = setTimeout(() => syncAll({ sharedOnly: true }), 1200); };
 
   // ---------- Dateien (verschlüsselte Blobs: Tickets, Fotos, GPX) ----------
   const tripKey = (t) => state.keys[t.id] && state.keys[t.id].k;
@@ -345,8 +436,13 @@
     return enqueue(async () => {
       setStatus("busy");
       try {
+        if (opts.sharedOnly) {
+          if (state.syncCfg && await syncShared()) { C.store.save(); if (["rezepte", "essen"].includes(state.ui.tab)) C.render(); }
+          setStatus("ok"); return;
+        }
         const before = JSON.stringify(state.trips);
         if (state.syncCfg) await pullKeyring();
+        if (state.syncCfg) { state.contacts.forEach((c) => { if (c.mine === undefined) c.mine = isMine(c); }); await ensureAdmin(); }
         if (state.syncCfg && !opts.only) await pullInboxes();
         const all = new Set([...Object.keys(state.trips), ...Object.keys(state.keys)]);
         const only = opts.only ? [opts.only] : [...all];
@@ -364,13 +460,18 @@
         }
         await processDeletes();
         if (state.syncCfg) await pushInboxes();
+        let shChanged = false;
+        if (state.syncCfg && !opts.only) {
+          try { await registerLinks(); } catch (e) { console.warn("Protokoll", e); }
+          try { shChanged = await syncShared(); } catch (e) { console.warn("Gerichte", e); }
+        }
         if (state.syncCfg) await pushKeyring();
         C.store.save();
         const brokenNames = [...new Set(state.contacts.filter((c) => sync.broken.has(c.id)).map((c) => c.name))];
         brokenNames.forEach((n) => errs.push(`Die Verbindung mit ${n} passt nicht – bitte ${n} um einen neuen Verbindungs-Link bitten (bei ${n}: Einstellungen → Mitreisende → Link → „Neuen Link erzeugen“).`));
         if (errs.length) setStatus("error", errs.join(" · "));
         else setStatus("ok");
-        if (JSON.stringify(state.trips) !== before) C.render();
+        if (JSON.stringify(state.trips) !== before || (shChanged && ["rezepte", "essen"].includes(state.ui.tab))) C.render();
         prefetchFiles();
       } catch (e) {
         console.error(e);
@@ -1159,7 +1260,7 @@
   const baseUrl = () => location.href.split("#")[0];
   function connectLink(c) {
     const cfg = state.syncCfg;
-    return baseUrl() + "#connect=" + enc64({ v: 1, o: cfg.o, r: cfg.r, t: cfg.t, c: c.id, k: c.k, n: c.name, f: state.profile.name || "", h: c.fp || "" });
+    return baseUrl() + "#connect=" + enc64({ v: 1, o: cfg.o, r: cfg.r, t: cfg.t, c: c.id, k: c.k, n: c.name, f: state.profile.name || "", h: c.fp || "", ...(cfg.ring ? { w: cfg.ring } : {}) });
   }
   function peopleList() {
     const groups = new Map();
@@ -1192,16 +1293,70 @@
       <label class="field" style="max-width:280px">So heißt du in den Reisen<input class="input" data-act="profile-name" value="${esc(me)}" placeholder="z. B. Eric"></label>
       ${list.length ? `<div class="people-list">${list.map((g) => `<div class="people-row">
           <div class="people-name"><b>${esc(g.name)}</b><span class="small muted">${g.trips ? g.trips + (g.trips === 1 ? " gemeinsame Reise" : " gemeinsame Reisen") : "noch keine gemeinsame Reise"}${Object.keys(g.variants).length > 1 ? " · Schreibweisen: " + esc(Object.keys(g.variants).join(", ")) : ""}</span></div>
-          ${g.contact ? `<span class="badge vegan">verbunden</span><button class="btn sm" data-act="plink" data-id="${g.contact.id}">Link</button>`
+          ${g.contact ? (isMine(g.contact) ? `<span class="badge vegan">verbunden</span><button class="btn sm" data-act="plink" data-id="${g.contact.id}">Link</button>`
+              : `<span class="badge vegan" title="Diese Verbindung hat ${esc(g.contact.name)} angelegt">verbunden</span><span class="small muted">über den Link von ${esc(g.contact.name)}</span>`)
             : `<button class="btn sm primary" data-act="pconnect" data-name="${esc(g.name)}">Verbinden</button>`}
         </div>`).join("")}</div>` : `<p class="small muted">In deinen Reisen stehen noch keine weiteren Namen.</p>`}
+      <div class="people-new"><b class="small">Weitere Person einladen</b>
+        <div class="row" style="gap:.4rem;flex-wrap:nowrap"><input class="input" data-pnewname placeholder="Name, z. B. Lena" style="max-width:240px;min-width:0"><button class="btn sm primary" data-act="pnew">Link erstellen</button></div>
+        <p class="hint">Auch ohne gemeinsame Reise – z. B. für deine Partnerin. Trag die Person danach in einer Reise als Mitreisende ein, dann bekommt sie die Reise automatisch. Links, die du anlegst, kannst nur du verschicken oder erneuern.</p></div>
       ${state.syncCfg.invite ? `<p class="hint">Auf deinen anderen Geräten öffnest du einfach wieder deinen Einladungslink und gibst dein Passwort ein. <button class="btn sm" data-act="mylink">Meinen Link kopieren</button></p>` : ""}
+    </div>`;
+  }
+  // ----- Admin: Überblick über alle Verknüpfungen in der App -----
+  const admin = { rows: null, loading: false, err: "", cache: new Map(), at: null };
+  async function loadAdmin(force) {
+    const cfg = state.syncCfg; if (!isAdmin() || admin.loading || (admin.rows && !force)) return;
+    admin.loading = true; admin.err = ""; rerenderAdmin();
+    try {
+      await ensureAdmin();
+      const [files, keys] = await Promise.all([S.listDir(cfg, "admin/links"), S.listDir(cfg, "keys")]);
+      const konten = new Set(keys.map((k) => k.name));
+      const starts = {}, ends = {}, oks = {};
+      for (const f of files) {
+        if (!f.name.endsWith(".enc")) continue;
+        let d = admin.cache.get(f.sha);
+        if (!d) {
+          const file = await S.getFile(cfg, f.path); if (!file) continue;
+          try { d = await S.openJSON(cfg.admin.priv, file.content); } catch { continue; }
+          admin.cache.set(f.sha, d);
+        }
+        if (f.name.endsWith(".end.enc")) ends[d.id] = d; else if (f.name.endsWith(".ok.enc")) oks[d.id] = d; else starts[d.id] = d;
+      }
+      admin.rows = Object.values(starts).map((e) => ({ ...e, end: ends[e.id], ok: oks[e.id] || (konten.has(`c_${e.id}.enc`) ? {} : null) }))
+        .sort((a, b) => (!!a.end - !!b.end) || String(b.am || "").localeCompare(String(a.am || "")) || String(a.von).localeCompare(String(b.von)));
+      admin.at = new Date();
+    } catch (e) { admin.err = e.message || String(e); }
+    admin.loading = false; rerenderAdmin();
+  }
+  function rerenderAdmin() { const el = $("#adminLinks"); if (el) el.outerHTML = renderAdmin(); }
+  function renderAdmin() {
+    if (!admin.rows && !admin.loading && !admin.err) setTimeout(() => loadAdmin(), 0);
+    const rows = admin.rows || [];
+    const aktiv = rows.filter((r) => !r.end);
+    const status = (r) => r.end ? `<span class="badge">ersetzt${r.end.am ? " am " + esc(fmtDate(r.end.am)) : ""}</span>`
+      : r.ok ? `<span class="badge vegan">angenommen${r.ok.name && norm(r.ok.name) !== norm(r.an) ? " als " + esc(r.ok.name) : ""}</span>` : `<span class="badge warn">noch nicht geöffnet</span>`;
+    return `<div class="card card-pad stack" id="adminLinks">
+      <h3 class="section-title">${ICONS.users} Alle Verknüpfungen <span class="badge">Admin</span></h3>
+      <p class="small muted">Jede Verbindung, die jemand in der App anlegt, wird hier verschlüsselt protokolliert – nur du kannst die Liste lesen. Reiseinhalte siehst du dadurch nicht. Verknüpfungen aus der Zeit vor dieser Funktion erscheinen, sobald die Person, die sie angelegt hat, die App einmal öffnet.</p>
+      ${admin.err ? `<p class="badge warn">${esc(admin.err)}</p>` : ""}
+      ${admin.loading && !admin.rows ? `<p class="small muted">Lade …</p>` : rows.length ? `
+        <p class="small"><b>${aktiv.length}</b> aktive Verknüpfung${aktiv.length === 1 ? "" : "en"} · ${new Set(aktiv.flatMap((r) => [norm(r.von), norm(r.an)])).size} Personen</p>
+        <div class="adm-list">${rows.map((r) => `<div class="adm-row ${r.end ? "is-old" : ""}">
+          <span class="adm-who"><b>${esc(r.von || "?")}</b> → <b>${esc(r.an || "?")}</b></span>
+          <span class="small muted">${r.am ? esc(fmtDate(r.am)) : "früher"} · Prüfcode ${esc(r.fp || "–")}</span>
+          ${status(r)}</div>`).join("")}</div>` : !admin.loading ? `<p class="small muted">Noch keine Verknüpfungen protokolliert.</p>` : ""}
+      <div class="row"><button class="btn sm" data-act="adminload" ${admin.loading ? "disabled" : ""}>${admin.loading ? "Lade …" : "Aktualisieren"}</button>${admin.at ? `<span class="small muted">Stand ${admin.at.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}</span>` : ""}</div>
     </div>`;
   }
   async function showConnectLink(c) {
     if (!c.fp) { c.fp = await fp(c.k); C.store.save(); }
     let check = "";
-    try { const box = await readInbox(c); check = box ? `<span class="badge vegan">Freigabe geprüft ✓</span>` : `<span class="badge warn">Freigabe passt nicht – bitte „Neuen Link erzeugen“</span>`; } catch { check = ""; }
+    try {
+      let box = await readInbox(c);
+      if (box && box.repair) { await syncAll(); box = await readInbox(c); }
+      check = box && !box.repair ? `<span class="badge vegan">Freigabe geprüft ✓</span>` : `<span class="badge warn">Freigabe passt nicht – bitte „Neuen Link erzeugen“</span>`;
+    } catch { check = ""; }
     const link = connectLink(c);
     const n = Object.values(state.trips).filter((t) => tripHas(t, c.name)).length;
     openModal({
@@ -1216,7 +1371,8 @@
         $("[data-rekey]", m).addEventListener("click", (e) => {
           if (!armed(e.currentTarget, "Alter Link wird ungültig – nochmal tippen")) return;
           const oldBox = state.syncCfg.inbox && state.syncCfg.inbox[c.id];
-          const n2 = { id: uid() + uid(), name: c.name, k: S.randomKey(), rings: (oldBox && oldBox.rings) || [] };
+          const n2 = { id: uid() + uid(), name: c.name, k: S.randomKey(), rings: (oldBox && oldBox.rings) || [], mine: true, am: C.todayISO() };
+          const cfg = state.syncCfg; cfg.regEv = [...(cfg.regEv || []), { typ: "end", id: c.id, ersetzt: n2.id, am: C.todayISO(), von: state.profile.name || "" }];
           dropContacts((x) => x.id === c.id); state.contacts.push(n2); C.store.save();
           closeModal(); toast("Neuer Link wird vorbereitet …");
           syncAll().then(() => { C.render(); showConnectLink(n2); });
@@ -1227,13 +1383,31 @@
   function onPeopleClick(a) {
     if (a.dataset.act === "pconnect") {
       if (!state.profile.name) state.profile.name = guessMe();
-      const c = { id: uid() + uid(), name: a.dataset.name, k: S.randomKey() };
+      const c = { id: uid() + uid(), name: a.dataset.name, k: S.randomKey(), mine: true, am: C.todayISO() };
       state.contacts.push(c); C.store.save();
       toast(`Teile Reisen mit ${c.name} …`);
       syncAll().then(() => { C.render(); showConnectLink(c); });
       return true;
     }
-    if (a.dataset.act === "plink") { const c = state.contacts.find((x) => x.id === a.dataset.id); if (c) showConnectLink(c); return true; }
+    if (a.dataset.act === "pnew") {
+      const inp = $("[data-pnewname]"); const name = C.niceName((inp && inp.value) || "");
+      if (!name) { toast("Bitte einen Namen eingeben."); if (inp) inp.focus(); return true; }
+      if (norm(name) === norm(state.profile.name)) { toast("Das bist du selbst."); return true; }
+      const ex = state.contacts.find((x) => norm(x.name) === norm(name));
+      if (ex) { if (isMine(ex)) showConnectLink(ex); else toast(`Mit ${ex.name} bist du schon verbunden (über den Link von ${ex.name}).`); return true; }
+      if (!state.profile.name) state.profile.name = guessMe();
+      const c = { id: uid() + uid(), name, k: S.randomKey(), mine: true, am: C.todayISO() };
+      state.contacts.push(c); C.store.save();
+      toast(`Verbindung mit ${name} wird angelegt …`);
+      syncAll().then(() => { C.render(); showConnectLink(c); });
+      return true;
+    }
+    if (a.dataset.act === "plink") {
+      const c = state.contacts.find((x) => x.id === a.dataset.id); if (!c) return true;
+      if (!isMine(c)) { toast(`Diesen Link hat ${c.name} angelegt – nur ${c.name} kann ihn verschicken oder erneuern.`); return true; }
+      showConnectLink(c); return true;
+    }
+    if (a.dataset.act === "adminload") { loadAdmin(true); return true; }
     if (a.dataset.act === "mylink") { C.copyText(baseUrl() + "#connect=" + state.syncCfg.invite, "Link kopiert."); return true; }
     return false;
   }
@@ -1253,7 +1427,8 @@
       // gleiches Repo: Verbindung hinzufügen bzw. erneuern (ersetzt eine alte Verbindung mit derselben Person)
       const name = C.niceName(inv.f || "Mitreisende Person");
       dropContacts((c) => c.id !== inv.c && norm(c.name) === norm(name)); state.contacts = state.contacts.filter((c) => c.id !== inv.c);
-      state.contacts.push({ id: inv.c, name, k: inv.k });
+      state.contacts.push({ id: inv.c, name, k: inv.k, mine: false });
+      state.syncCfg.regEv = [...(state.syncCfg.regEv || []), { typ: "ok", id: inv.c, name: state.profile.name || "", am: C.todayISO() }];
       sync.broken.clear(); C.store.save();
       toast(`Verbindung mit ${name} erneuert – lade gemeinsame Reisen …`);
       syncAll().then(() => { location.hash = "urlaube"; C.render(); });
@@ -1278,7 +1453,7 @@
           // Gibt es schon ein Konto dieser Person (aus einem früheren Link)? Dann wird es weiterverwendet.
           try {
             const box = await S.getFile(cfg, `inbox/${inv.c}.enc`);
-            if (box) { const d = await S.decJSON(inv.k, box.content); olds = (d.rings || []).filter((r) => r !== ring); }
+            if (box) { const d = await S.decJSON(inv.k, box.content); olds = (d.rings || []).filter((r) => r !== ring && r !== inv.w); } // nicht das Konto der Person, die den Link geschickt hat
           } catch { /* egal */ }
         }
         const p2 = $("[data-p2]", m);
@@ -1310,8 +1485,9 @@
             state.profile.name = C.niceName(f.name.value) || inv.n || "";
             const nm = C.niceName(inv.f || "Mitreisende Person");
             dropContacts((c) => c.id !== inv.c && norm(c.name) === norm(nm));
-            if (!state.contacts.some((c) => c.id === inv.c)) state.contacts.push({ id: inv.c, name: nm, k: inv.k });
-            else state.contacts.find((c) => c.id === inv.c).k = inv.k;
+            if (!state.contacts.some((c) => c.id === inv.c)) state.contacts.push({ id: inv.c, name: nm, k: inv.k, mine: false });
+            else Object.assign(state.contacts.find((c) => c.id === inv.c), { k: inv.k, mine: false });
+            cfg.regEv = [...(cfg.regEv || []), { typ: "ok", id: inv.c, name: state.profile.name || "", am: C.todayISO() }];
             sync.broken.clear();
             Object.values(state.keys).forEach((k) => { if (k.owner === undefined) k.owner = true; });
             C.store.save(); closeModal(); toast("Verbunden – lade eure Reisen …");
@@ -1386,6 +1562,7 @@
         <p class="small muted">${lockedList().length} Urlaub(e) liegen im Daten-Repo, lassen sich auf diesem Gerät aber noch nicht öffnen (Kennung: ${lockedList().map((id) => esc(id.slice(0, 8))).join(", ")}). Öffne die Urlaubsplanung auf dem Gerät, auf dem du die Reise angelegt oder importiert hast, und synchronisiere dort – danach erscheint sie hier automatisch.</p>
         <div class="row"><button class="btn sm" data-act="unlock-forget">Hier nicht mehr anzeigen</button></div></div>` : ""}
       ${renderPeople()}
+      ${isAdmin() ? renderAdmin() : ""}
       ${invited.length ? `<div class="card card-pad"><h3 class="section-title">Urlaube, zu denen du eingeladen bist</h3><ul class="plain">${invited.map(([id]) => `<li>${esc(state.trips[id] ? tripName(state.trips[id]) : id)}</li>`).join("")}</ul></div>` : ""}
       <div class="card card-pad stack">
         <h3 class="section-title">Sicherung</h3>

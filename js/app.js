@@ -46,7 +46,7 @@
     save() {
       try {
         localStorage.setItem(KEY, JSON.stringify({ trips: state.trips, current: state.current, ui: state.ui, data: state.data,
-          me: state.me, keys: state.keys, syncCfg: state.syncCfg, base: state.base, deleted: state.deleted, fileDeletes: state.fileDeletes, pendingUploads: state.pendingUploads, geo: state.geo, profile: state.profile, contacts: state.contacts }));
+          me: state.me, keys: state.keys, syncCfg: state.syncCfg, base: state.base, deleted: state.deleted, fileDeletes: state.fileDeletes, pendingUploads: state.pendingUploads, geo: state.geo, profile: state.profile, contacts: state.contacts, shared: state.shared }));
       }
       catch { /* Speicher nicht verfügbar – Seite funktioniert trotzdem */ }
     }
@@ -66,6 +66,7 @@
     pendingUploads: saved.pendingUploads || [], // Dateien, die noch hochgeladen werden müssen
     profile: saved.profile || { name: "" },      // wie ich in den Reisen heiße
     contacts: saved.contacts || [],             // verbundene Mitreisende: { id, name, k }
+    shared: saved.shared || { rezepte: [], zutaten: [], gone: [] }, // Gerichte & Zutaten, die alle in der App sehen
     geo: saved.geo || {},                       // Zwischenspeicher für gefundene Orte (Name → Koordinaten)
     ui: Object.assign({ tab: "urlaube", groupBy: "modul", hidePacked: false, hideOptional: false, viewPerson: "alle",
       rFilter: { mahlzeit: "alle", basis: "alle", diaet: "alle", q: "" }, rSub: "gerichte" }, saved.ui || {}),
@@ -74,7 +75,47 @@
   };
 
   const PACK = () => (state.data && state.data.pack) || window.PACK_DATA;
-  const REZ = () => (state.data && state.data.rezept) || window.REZEPT_DATA;
+  // Wandergerichte = Stammdaten (bzw. lokal bearbeitete Kopie) + gemeinsame Gerichte aller Nutzer:innen
+  let rezCache = null, rezRev = 0;
+  const REZ = () => {
+    const base = (state.data && state.data.rezept) || window.REZEPT_DATA, sh = state.shared;
+    if (rezCache && rezCache.rev === rezRev && rezCache.base === base && rezCache.sh === sh) return rezCache.d;
+    const gone = new Set((sh.gone || []).map((g) => g.id));
+    const rids = new Set(sh.rezepte.map((r) => r.id)), zids = new Set(sh.zutaten.map((z) => z.id));
+    const d = { ...base,
+      rezepte: base.rezepte.filter((r) => !rids.has(r.id) && !gone.has(r.id)).concat(sh.rezepte.filter((r) => !gone.has(r.id)).map((r) => ({ ...r, geteilt: true }))),
+      zutaten: base.zutaten.filter((z) => !zids.has(z.id) && !gone.has(z.id)).concat(sh.zutaten.filter((z) => !gone.has(z.id)).map((z) => ({ ...z, geteilt: true }))) };
+    rezCache = { rev: rezRev, base, sh, d };
+    return d;
+  };
+  const whoAmI = () => (window.PL.whoId ? window.PL.whoId() : "local");
+  const isAdminUser = () => !!(state.syncCfg && !state.syncCfg.ring);
+  const canEditShared = (r) => !!r && !!r.geteilt && (r.vonId === whoAmI() || r.vonId === "local" || isAdminUser());
+  function putShared(kind, item) {
+    const sh = state.shared, it = { ...item, am: Date.now() }; delete it.geteilt;
+    if (!it.vonId) { it.von = state.profile.name || ""; it.vonId = whoAmI(); }
+    const i = sh[kind].findIndex((x) => x.id === it.id);
+    if (i >= 0) sh[kind][i] = it; else sh[kind].push(it);
+    sh.gone = (sh.gone || []).filter((g) => g.id !== it.id);
+    rezRev++; if (window.PL.sharedChanged) setTimeout(window.PL.sharedChanged, 0);
+  }
+  function dropShared(kind, id) {
+    const sh = state.shared; sh[kind] = sh[kind].filter((x) => x.id !== id);
+    sh.gone = [...(sh.gone || []).filter((g) => g.id !== id), { id, am: Date.now() }];
+    rezRev++; if (window.PL.sharedChanged) setTimeout(window.PL.sharedChanged, 0);
+  }
+  const sharedToast = (what) => toast(state.syncCfg ? `${what} gespeichert – alle in der App sehen es nach dem nächsten Abgleich.` : `${what} gespeichert. Mit allen geteilt wird es, sobald die Synchronisierung eingerichtet ist.`);
+  // eigene Gerichte aus früheren Versionen (nur in diesem Browser) werden einmalig zu gemeinsamen
+  (function migrateOwnRecipes() {
+    const own = state.data && state.data.rezept; if (!own || state.ui.sharedMig) return;
+    const baseZ = new Set(window.REZEPT_DATA.zutaten.map((z) => z.id));
+    const sh = state.shared, now = Date.now();
+    own.zutaten.filter((z) => !baseZ.has(z.id) && !sh.zutaten.some((x) => x.id === z.id)).forEach((z) => sh.zutaten.push({ ...z, am: now, von: state.profile.name || "", vonId: "local" }));
+    own.rezepte.filter((r) => r.eigen && !sh.rezepte.some((x) => x.id === r.id)).forEach((r) => sh.rezepte.push({ ...r, am: now, von: state.profile.name || "", vonId: "local" }));
+    own.rezepte = own.rezepte.filter((r) => !r.eigen); own.zutaten = own.zutaten.filter((z) => baseZ.has(z.id));
+    state.ui.sharedMig = 1;
+  })();
+  window.PL.rezDirty = () => { rezRev++; };
   // selbst bearbeitete Packliste um neue Regeln/Items der aktuellen Version ergänzen
   (function upgradePack() {
     const own = state.data && state.data.pack, base = window.PACK_DATA;
@@ -1069,7 +1110,7 @@
         <input class="input" type="search" data-rf="q" placeholder="Suchen, z. B. Couscous, Dashi …" value="${esc(f.q)}">` : ""}
       <span class="spacer"></span>
       ${sub === "gerichte" ? `<button class="btn primary sm" data-act="freestyle">${ICON.wand} Freestyle-Gericht bauen</button>` : ""}
-      ${state.edit ? (sub === "gerichte" ? `<button class="btn sm" data-act="new-rezept">${ICON.plus} Neues Gericht</button>` : `<button class="btn primary sm" data-act="new-zutat">${ICON.plus} Neue Zutat</button>`) : ""}
+      ${sub === "gerichte" ? `<button class="btn sm" data-act="new-rezept">${ICON.plus} Neues Gericht</button>` : `<button class="btn primary sm" data-act="new-zutat">${ICON.plus} Neue Zutat</button>`}
     </div>`;
 
     if (sub === "register") {
@@ -1082,7 +1123,7 @@
             <span class="badge ${z.herkunft}">${z.herkunft === "dehydrieren" ? "selbst trocknen" : z.herkunft === "frisch" ? "frisch / Dose" : "kaufen"}</span>
             <span class="badge ${z.diaet}">${DIAET_LABEL[z.diaet] || ""}</span>
             <span class="muted small">${z.kcal} kcal/100 g · in ${usage[z.id] || 0} Gerichten</span>
-            ${state.edit ? `<button class="icon-btn" data-act="edit-zutat" data-id="${z.id}" aria-label="Bearbeiten">${ICON.edit}</button>` : ""}</div>
+            ${(state.edit && !z.geteilt) || canEditShared(z) ? `<button class="icon-btn" data-act="edit-zutat" data-id="${z.id}" aria-label="Bearbeiten">${ICON.edit}</button>` : ""}</div>
             ${z.vorbereitung ? `<p>${esc(z.vorbereitung)}</p>` : ""}</div>`).join("")}</section>`;
       }).join("")}</div>`;
       return;
@@ -1111,7 +1152,7 @@
   function recipeCard(r) {
     const info = recipeInfo(r);
     return `<button class="card recipe-card" data-act="open-rezept" data-id="${r.id}">
-      <div class="recipe-meta"><span class="badge">${MEAL_LABEL[r.mahlzeit]}</span><span class="badge ${info.diaet}">${DIAET_LABEL[info.diaet]}</span>${r.eigen ? '<span class="badge person">eigenes</span>' : ""}<span>${esc(r.basis)}</span></div>
+      <div class="recipe-meta"><span class="badge">${MEAL_LABEL[r.mahlzeit]}</span><span class="badge ${info.diaet}">${DIAET_LABEL[info.diaet]}</span>${r.geteilt ? `<span class="badge person" title="Gemeinsames Gericht">${r.von ? "von " + esc(r.von) : "geteilt"}</span>` : r.eigen ? '<span class="badge person">eigenes</span>' : ""}<span>${esc(r.basis)}</span></div>
       <h3>${esc(r.name)}</h3>
       ${buildStrip(r)}
       <div class="recipe-stats"><span><b>${info.kcal}</b> kcal</span><span><b>${info.g}</b> g</span>${r.zeit ? `<span><b>${r.zeit}</b> min</span>` : ""}${r.kocher ? "" : "<span>ohne Kocher</span>"}</div>
@@ -1270,7 +1311,8 @@
             </div>`;
           foot.innerHTML = `
             ${c.modified ? `<button class="btn" data-reset>${ICON.reset} Original</button>` : ""}
-            ${state.edit && w.base ? `<button class="btn" data-edit>${ICON.edit} Bearbeiten</button>` : ""}
+            ${w.base && (canEditShared(r0) || (state.edit && !r0.geteilt)) ? `<button class="btn" data-edit>${ICON.edit} Bearbeiten</button>` : ""}
+            ${r0 && r0.geteilt ? `<span class="small muted">von ${esc(r0.von || "jemandem")}</span>` : ""}
             <span class="spacer"></span>
             ${(c.modified || !w.base) && w.rows.length ? `<button class="btn" data-save>Als eigenes Gericht speichern</button>` : ""}
             <button class="btn primary" data-close>Schließen</button>`;
@@ -1300,7 +1342,6 @@
             const c = computeWork(w);
             const suggested = w.base ? (c.name !== r0.name ? c.name : r0.name + " (Variante)") : w.name;
             return askName("Gericht speichern", suggested, (name) => {
-              const RD = editable("rezept");
               const hint = c.swaps.filter((s) => s.to.zubereitung).map((s) => `${kurzOf(s.to)}: ${s.to.zubereitung}.`).join(" ");
               const nr = {
                 id: slug(name) + "-" + uid().slice(0, 3), name, mahlzeit: w.mahlzeit, basis: c.basis,
@@ -1308,8 +1349,8 @@
                 zuhause: c.zuhause, unterwegs: [...c.unterwegs, ...(w.base && hint && !c.auto ? ["Hinweis zum Austausch: " + hint] : [])],
                 eigen: true
               };
-              RD.rezepte.push(nr); commit();
-              toast(`„${name}“ gespeichert – steht jetzt auch im Essensplaner zur Wahl.`);
+              putShared("rezepte", nr); commit();
+              sharedToast(`„${name}“`);
               openWerkbank(nr.id);
             });
           }
@@ -1320,6 +1361,7 @@
 
   function openRezeptEditor(id) {
     const D = REZ();
+    if (id && rez(id) && rez(id).geteilt && !canEditShared(rez(id))) return toast(`Nur ${rez(id).von || "die Person, die es angelegt hat"} kann dieses Gericht ändern – „Als eigenes Gericht speichern“ geht aber.`);
     const r = id ? rez(id) : { name: "", mahlzeit: "dinner", basis: "", zutaten: [{ z: D.zutaten[0].id, g: 100 }], wasser: 0, zeit: 0, kocher: true, zuhause: "", unterwegs: [] };
     const zOpts = (sel) => D.kategorien.map((c) => `<optgroup label="${esc(c.name)}">${D.zutaten.filter((z) => z.kat === c.id).map((z) => `<option value="${z.id}" ${z.id === sel ? "selected" : ""}>${esc(z.name)}</option>`).join("")}</optgroup>`).join("");
     const zrow = (z) => `<div class="zrow"><select name="zz">${zOpts(z.z)}</select><input type="number" name="zg" min="0" value="${z.g}" aria-label="Gramm pro Portion"><button type="button" class="icon-btn" data-delrow aria-label="Zutat entfernen">${ICON.close}</button></div>`;
@@ -1345,21 +1387,23 @@
         $("[data-addrow]", m).addEventListener("click", () => box.insertAdjacentHTML("beforeend", zrow({ z: D.zutaten[0].id, g: 20 })));
         box.addEventListener("click", (e) => { const b = e.target.closest("[data-delrow]"); if (b && box.children.length > 1) b.parentElement.remove(); });
         $("#rForm", m).addEventListener("submit", (e) => {
-          e.preventDefault(); const f = e.target; const RD = editable("rezept");
-          const item = id ? RD.rezepte.find((x) => x.id === id) : { id: slug(f.name.value) + "-" + uid().slice(0, 3) };
+          e.preventDefault(); const f = e.target;
+          const shared = !id || r.geteilt; const RD = shared ? null : editable("rezept");
+          const item = !id ? { id: slug(f.name.value) + "-" + uid().slice(0, 3), eigen: true } : shared ? { ...state.shared.rezepte.find((x) => x.id === id) } : RD.rezepte.find((x) => x.id === id);
           Object.assign(item, {
             name: f.name.value.trim(), mahlzeit: f.mahlzeit.value, basis: f.basis.value.trim() || "Sonstiges",
             wasser: +f.wasser.value || 0, zeit: +f.zeit.value || 0, kocher: f.kocher.checked,
             zuhause: f.zuhause.value.trim(), unterwegs: stepsOf(f.unterwegs.value),
             zutaten: $$(".zrow", box).map((row) => ({ z: $("select", row).value, g: +$("input", row).value || 0 })).filter((x) => x.g > 0)
           });
-          if (!id) RD.rezepte.push(item);
+          if (shared) { putShared("rezepte", item); closeModal(); commit(); return sharedToast("Gericht"); }
           closeModal(); commit(); toast("Gericht gespeichert (nur in diesem Browser).");
         });
         const del = $("[data-del]", m);
         if (del) del.addEventListener("click", () => {
           if (!armed(del, "Wirklich löschen?")) return;
-          const RD = editable("rezept"); RD.rezepte = RD.rezepte.filter((x) => x.id !== id);
+          if (r.geteilt) dropShared("rezepte", id);
+          else { const RD = editable("rezept"); RD.rezepte = RD.rezepte.filter((x) => x.id !== id); }
           closeModal(); commit(); toast("Gericht gelöscht.");
         });
       }
@@ -1368,6 +1412,7 @@
 
   function openZutatEditor(id) {
     const D = REZ();
+    if (id && zut(id) && zut(id).geteilt && !canEditShared(zut(id))) return toast(`Nur ${zut(id).von || "die Person, die sie angelegt hat"} kann diese Zutat ändern.`);
     const z = id ? zut(id) : { name: "", kat: "gemuese", kcal: 300, diaet: "vegan", herkunft: "kaufen", vorbereitung: "" };
     const used = id ? D.rezepte.filter((r) => r.zutaten.some((x) => x.z === id)) : [];
     openModal({
@@ -1390,20 +1435,22 @@
       foot: `${id ? `<button class="btn danger" data-del>Löschen</button><span class="spacer"></span>` : ""}<button class="btn" data-close>Abbrechen</button><button class="btn primary" form="zForm">Speichern</button>`,
       onMount: (m) => {
         $("#zForm", m).addEventListener("submit", (e) => {
-          e.preventDefault(); const f = e.target; const RD = editable("rezept");
-          const item = id ? RD.zutaten.find((x) => x.id === id) : { id: slug(f.name.value) };
-          if (!id && RD.zutaten.find((x) => x.id === item.id)) item.id += "-" + uid().slice(0, 3);
+          e.preventDefault(); const f = e.target;
+          const shared = !id || z.geteilt; const RD = shared ? null : editable("rezept");
+          const item = !id ? { id: slug(f.name.value) } : shared ? { ...state.shared.zutaten.find((x) => x.id === id) } : RD.zutaten.find((x) => x.id === id);
+          if (!id && D.zutaten.find((x) => x.id === item.id)) item.id += "-" + uid().slice(0, 3);
           Object.assign(item, { name: f.name.value.trim(), kat: f.kat.value, kcal: +f.kcal.value || 0, diaet: f.diaet.value, herkunft: f.herkunft.value, vorbereitung: f.vorbereitung.value.trim(),
             kurz: f.kurz.value.trim(), portion: +f.portion.value || 0, wasser: +f.wasser.value || 0, zeit: +f.zeit.value || 0, zubereitung: f.zubereitung.value.trim(), klebt: f.klebt.checked });
           ["kurz", "portion", "wasser", "zeit", "zubereitung", "klebt"].forEach((k) => { if (!item[k]) delete item[k]; });
-          if (!id) RD.zutaten.push(item);
+          if (shared) { putShared("zutaten", item); closeModal(); commit(); return sharedToast("Zutat"); }
           closeModal(); commit(); toast("Zutat gespeichert (nur in diesem Browser).");
         });
         const del = $("[data-del]", m);
         if (del) del.addEventListener("click", () => {
           if (used.length) return toast("Wird noch in Gerichten verwendet – erst dort entfernen.");
           if (!armed(del, "Wirklich löschen?")) return;
-          const RD = editable("rezept"); RD.zutaten = RD.zutaten.filter((x) => x.id !== id);
+          if (z.geteilt) dropShared("zutaten", id);
+          else { const RD = editable("rezept"); RD.zutaten = RD.zutaten.filter((x) => x.id !== id); }
           closeModal(); commit(); toast("Zutat gelöscht.");
         });
       }
@@ -1547,7 +1594,7 @@
     else if (tab === "rezepte") renderRezepte();
     else if (window.PL.views && window.PL.views[tab]) window.PL.views[tab]();
   }
-  function commit() { store.save(); render(); if (window.PL.afterCommit) window.PL.afterCommit(); }
+  function commit() { rezRev++; store.save(); render(); if (window.PL.afterCommit) window.PL.afterCommit(); }
   // speichern ohne neu zu zeichnen (z. B. beim Tippen in Tabellenzellen)
   function save() { store.save(); if (window.PL.afterCommit) window.PL.afterCommit(); }
 

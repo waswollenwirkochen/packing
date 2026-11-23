@@ -112,6 +112,31 @@
     return info;
   }
 
+  async function listDir(cfg, path) {
+    const r = await gh(cfg, "GET", path);
+    return Array.isArray(r) ? r.map((x) => ({ name: x.name, path: x.path, sha: x.sha, type: x.type })) : [];
+  }
+
+  // ---------- Öffentlicher Schlüssel (nur der Admin kann lesen) ----------
+  const RSA = { name: "RSA-OAEP", hash: "SHA-256" };
+  async function rsaGen() {
+    const kp = await subtle.generateKey({ ...RSA, modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]) }, true, ["encrypt", "decrypt"]);
+    return { pub: await subtle.exportKey("jwk", kp.publicKey), priv: await subtle.exportKey("jwk", kp.privateKey) };
+  }
+  // hybrid: zufälliger AES-Schlüssel, der mit dem öffentlichen Schlüssel verpackt wird
+  async function sealJSON(pubJwk, obj) {
+    const k = randomKey();
+    const pub = await subtle.importKey("jwk", pubJwk, RSA, false, ["encrypt"]);
+    const w = bytesToB64(new Uint8Array(await subtle.encrypt(RSA, pub, b64ToBytes(k))));
+    return btoa(JSON.stringify({ v: 1, w, d: await encJSON(k, obj) }));
+  }
+  async function openJSON(privJwk, b64) {
+    const box = JSON.parse(atob(b64));
+    const priv = await subtle.importKey("jwk", privJwk, RSA, false, ["decrypt"]);
+    const k = bytesToB64(new Uint8Array(await subtle.decrypt(RSA, priv, b64ToBytes(box.w))));
+    return decJSON(k, box.d);
+  }
+
   // ---------- IndexedDB (Dateien offline) ----------
   let dbp = null;
   function db() {
@@ -168,6 +193,6 @@
   }
 
   PL.sync = { bytesToB64, b64ToBytes, b64url, unb64url, randomKey, encBytes, decBytes, encJSON, decJSON, deriveMaster,
-    GHError, getFile, getRawBytes, putFile, delFile, testRepo, cacheGet, cachePut, cacheDel, merge3, eq,
+    GHError, getFile, getRawBytes, putFile, listDir, rsaGen, sealJSON, openJSON, delFile, testRepo, cacheGet, cachePut, cacheDel, merge3, eq,
     available: !!subtle };
 })();
