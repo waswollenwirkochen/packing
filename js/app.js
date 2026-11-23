@@ -351,6 +351,9 @@
   function parseDE(s) {
     s = String(s || "").trim(); if (!s) return "";
     if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    // Handy-Zifferntastatur hat keinen Punkt: 13092026, 130926 oder 1309 verstehen
+    const dg = s.match(/^(\d{2})(\d{2})(\d{2}|\d{4})?$/);
+    if (dg) s = dg[1] + "." + dg[2] + (dg[3] ? "." + dg[3] : "");
     const m = s.match(/^(\d{1,2})[.\/\- ](\d{1,2})(?:[.\/\- ](\d{2,4}))?\.?$/);
     if (!m) return null;
     let [, d, mo, y] = m; d = +d; mo = +mo;
@@ -361,6 +364,15 @@
     if (dt.getMonth() !== mo - 1 || dt.getDate() !== d) return null;
     return `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
   }
+  // Datumsfelder: beim Tippen von Ziffern automatisch Punkte einfügen (TT.MM.JJJJ)
+  document.addEventListener("input", (e) => {
+    const el = e.target;
+    if (!el.matches || !el.matches('input[placeholder="TT.MM.JJJJ"]') || !/^insert/.test(e.inputType || "")) return;
+    const v = el.value; if (!/^[\d.]*$/.test(v)) return;
+    const d = v.replace(/\./g, "").slice(0, 8);
+    const out = d.length > 4 ? `${d.slice(0, 2)}.${d.slice(2, 4)}.${d.slice(4)}` : d.length > 2 ? `${d.slice(0, 2)}.${d.slice(2)}` : d;
+    if (out !== v && el.selectionStart === v.length) el.value = out;
+  }, true);
   function setRange(t, von, bis) {
     t.von = von || ""; t.bis = bis || "";
     if (t.von && t.bis && t.bis < t.von) [t.von, t.bis] = [t.bis, t.von];
