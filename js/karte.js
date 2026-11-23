@@ -303,6 +303,14 @@
     }
     return shuffleCache[key].list.slice(0, n);
   }
+  // Platzhalter fürs Profilbild: Symbol passend zur Reiseart
+  const TI = {
+    zelt: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 20h18M12 4 4 20M12 4l8 16M12 4v0M9.5 20 12 14l2.5 6"/><path d="M10.5 4.5 12 4l1.5.5"/></svg>',
+    huette: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 20l6-10 3 4 4-7 7 13z"/><path d="M15 7l1.5-2.5L18 7"/></svg>',
+    stadt: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M5 21V10l4-2v13M9 21V5l6-2v18M15 21V9l4 2v10"/><path d="M11.5 8h1M11.5 11h1M11.5 14h1"/></svg>',
+    flug: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10.5 13.5 3 11l1.2-1.6 8.3 1L17 5.6c.9-.9 2.4-.9 2.9-.4s.5 2-.4 2.9L14.6 12.5l1 8.3L14 22l-2.5-7.5"/></svg>'
+  };
+  const tripIcon = (t) => TI[(t.arten || []).includes("wandern") ? (t.tour === "huette" ? "huette" : "zelt") : (t.arten || []).includes("stadt") ? "stadt" : "flug"];
   const coverOf = (t) => (t.cover && (t.fotos || []).find((f) => f.id === t.cover)) || null;
   const urlCache = {};
   async function photoUrl(t, fid, type = "image/jpeg") {
@@ -540,7 +548,7 @@
         const s = tripStats(t), r = reviewAvg(t);
         const cv = coverOf(t);
         return `<li><button data-mtrip="${t.id}"><span class="dot-c" style="background:${colorOf(t)}"></span>
-          ${cv ? `<span class="tl-cover"><img data-thumb="${cv.id}" data-trip="${t.id}" alt=""></span>` : `<span class="tl-cover tl-ph" aria-hidden="true" style="--c:${colorOf(t)}">${esc((tripName(t).match(/\p{L}/u) || ["?"])[0].toUpperCase())}</span>`}
+          ${cv ? `<span class="tl-cover"><img data-thumb="${cv.id}" data-trip="${t.id}" alt=""></span>` : `<span class="tl-cover tl-ph" aria-hidden="true" style="--c:${colorOf(t)}">${tripIcon(t)}</span>`}
           <span class="tl-main"><b>${esc(tripName(t))}</b><small>${t.von ? fmtDate(t.von, { month: "short", year: "numeric" }) + " · " + t.tage + " Tage" : t.jahr || (t.vergangen ? "Datum unbekannt" : t.tage + " Tage")}${s.wKm ? " · " + U.fmtNum(s.wKm, 0) + " km" : ""}${s.hoch ? " · ↑ " + U.fmtNum(s.hoch) + " m" : ""}</small>
           ${!s.orte ? `<small class="warn-txt">noch keine Route</small>` : ""}</span>
           ${r ? stars(r) : ""}</button></li>`;
