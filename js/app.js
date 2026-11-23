@@ -443,7 +443,11 @@
 
     el.innerHTML = `
     <div class="pack-layout">
-      <aside class="card card-pad trip-card stack">
+
+
+      <div class="stack">
+        ${renderTimeline(t)}
+      <div class="card card-pad trip-card trip-bar">
         <div>
           <div class="print-only small muted">Packliste</div>
           <h2>${esc(tripName(t))}</h2>
@@ -460,10 +464,7 @@
         ${multi ? `<label class="field no-print">Ich bin
           <select class="input" data-act="set-me"><option value="">– bitte wählen –</option>${t.personen.map((p) => `<option value="${p.id}" ${p.id === myId(t) ? "selected" : ""}>${esc(pname(t, p))}</option>`).join("")}</select></label>` : ""}
         ${multi && !me ? `<div class="whoami no-print">Wähle bei „Ich bin“, wer du bist. Dann siehst du, was du selbst mitbringen musst.</div>` : ""}
-      </aside>
-
-      <div class="stack">
-        ${renderTimeline(t)}
+      </div>
         <div class="card modules no-print" aria-label="Module">
           ${P.module.map((m) => `<button class="chip ${t.module.includes(m.id) ? "on" : ""}" data-act="toggle-mod" data-id="${m.id}" aria-pressed="${t.module.includes(m.id)}">${esc(m.name)}</button>`).join("")}
           ${state.edit ? `<button class="chip add" data-act="add-mod">${ICON.plus} Modul</button>` : ""}
@@ -533,7 +534,7 @@
     return sorted.sort((a, b) => g.indexOf(grpOf(t, a) || "") - g.indexOf(grpOf(t, b) || "") || ordOf(t, a) - ordOf(t, b));
   }
   // Spaltenzahl je nach Bildschirmbreite; Gruppen werden zeilenweise verteilt (Kleidung oben links usw.)
-  function packCols() { const w = window.innerWidth; return w < 760 ? 1 : w < 1250 ? 2 : w < 1750 ? 3 : 4; }
+  function packCols() { const w = Math.min(window.innerWidth, 2400) - 48; return window.innerWidth < 760 ? 1 : Math.max(1, Math.min(4, Math.floor(w / 400))); }
   function masonry(sections) {
     const n = packCols(); if (n === 1) return sections.map((x) => x.html).join("");
     const cols = Array.from({ length: n }, () => ({ h: 0, html: "" }));
@@ -1576,7 +1577,7 @@
     document.body.appendChild(ghost);
     const mark = document.createElement("div"); mark.className = "drop-mark";
     drag = { id: grip.dataset.grip, li, ghost, mark, dy: e.clientY - r.top, x: r.left, target: null };
-    li.classList.add("dragging");
+    li.classList.add("dragging"); document.body.classList.add("is-dragging");
     grip.setPointerCapture && grip.setPointerCapture(e.pointerId);
     moveDrag(e);
   });
@@ -1610,7 +1611,7 @@
   window.addEventListener("pointermove", (e) => { if (drag) { e.preventDefault(); moveDrag(e); } }, { passive: false });
   window.addEventListener("pointerup", () => {
     if (!drag) return;
-    const d = drag; drag = null; d.ghost.remove(); d.mark.remove(); d.li.classList.remove("dragging");
+    const d = drag; drag = null; document.body.classList.remove("is-dragging"); d.ghost.remove(); d.mark.remove(); d.li.classList.remove("dragging");
     if (!d.target) return;
     const t = trip(); const P = PACK();
     const it = P.items.find((x) => x.id === d.id); if (!it) return;
