@@ -15,6 +15,9 @@
     ["wetter", "Wetter"], ["preis", "Preis-Leistung"], ["kultur", "Kultur"], ["stimmung", "Stimmung"]
   ];
   const I = {
+    star: '<svg viewBox="0 0 20 20" fill="currentColor"><path d="M10 1.8l2.5 5.2 5.7.8-4.1 4 1 5.7L10 14.8 4.9 17.5l1-5.7-4.1-4 5.7-.8z"/></svg>',
+    dl: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 17h12"/></svg>',
+    x: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 5l10 10M15 5 5 15"/></svg>',
     pin: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M10 17.5s5.5-5 5.5-9.5a5.5 5.5 0 0 0-11 0c0 4.5 5.5 9.5 5.5 9.5z"/><circle cx="10" cy="8" r="2"/></svg>',
     up: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12l5-5 5 5"/></svg>',
     down: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 8l5 5 5-5"/></svg>',
@@ -227,6 +230,17 @@
     C.commit(); if (ok) toast(`${ok} ${ok === 1 ? "Foto" : "Fotos"} hinzugefügt.`);
     if (U.isShared(t.id)) U.syncAll({ only: t.id });
   }
+  // zufällige, aber pro Sitzung stabile Auswahl (damit nichts bei jedem Neuzeichnen springt)
+  const shuffleCache = {};
+  function pick(key, list, n) {
+    const ids = list.map((f) => f.id).join(",");
+    if (!shuffleCache[key] || shuffleCache[key].ids !== ids) {
+      const a = list.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+      shuffleCache[key] = { ids, list: a };
+    }
+    return shuffleCache[key].list.slice(0, n);
+  }
+  const coverOf = (t) => (t.cover && (t.fotos || []).find((f) => f.id === t.cover)) || null;
   const urlCache = {};
   async function photoUrl(t, fid) {
     if (urlCache[fid]) return urlCache[fid];
@@ -235,38 +249,92 @@
   }
   function hydrateThumbs(root, t) {
     $$("img[data-thumb]", root).forEach(async (img) => {
-      try { img.src = await photoUrl(t, img.dataset.thumb + "_t"); img.classList.add("loaded"); }
+      const tt = img.dataset.trip ? state.trips[img.dataset.trip] : t; if (!tt) return;
+      try { img.src = await photoUrl(tt, img.dataset.thumb + "_t"); img.classList.add("loaded"); }
       catch { img.alt = "noch nicht verfügbar"; img.classList.add("missing"); }
     });
   }
+  // Galerie aus Kacheln, die sich je nach Bildformat zu vollen Zeilen zusammenfügen
+  function justify(box) {
+    if (!box) return;
+    const W = box.clientWidth; if (!W) return;
+    const gap = 4, target = W < 520 ? 120 : 175;
+    const tiles = $$(".jg-tile", box);
+    let row = [], sum = 0;
+    const flush = (last) => {
+      if (!row.length) return;
+      const h = last ? Math.min(target, (W - gap * (row.length - 1)) / sum) : (W - gap * (row.length - 1)) / sum;
+      row.forEach(([el, a]) => { el.style.width = Math.floor(a * h) + "px"; el.style.height = Math.floor(h) + "px"; });
+      row = []; sum = 0;
+    };
+    tiles.forEach((el) => {
+      const a = Math.max(0.4, Math.min(3, parseFloat(el.dataset.ar) || 1.5));
+      row.push([el, a]); sum += a;
+      if (sum * target + gap * (row.length - 1) >= W) flush(false);
+    });
+    flush(true);
+  }
+  // Vollbild-Betrachter: wischen/Pfeiltasten, unten Etappe zuordnen, Profilbild, Download, Löschen
+  let viewer = null;
   function openPhoto(t, id, list) {
-    const idx = list.findIndex((f) => f.id === id); const f = list[idx]; if (!f) return;
+    let idx = list.findIndex((f) => f.id === id); if (idx < 0) return;
+    closeViewer();
+    const el = document.createElement("div"); el.className = "pv"; el.setAttribute("role", "dialog"); el.setAttribute("aria-label", "Foto");
+    document.body.appendChild(el); document.body.classList.add("pv-open");
+    viewer = { el, t, list };
     const ortName = (oid) => ((t.orte || []).find((o) => o.id === oid) || {}).name || "Reise allgemein";
-    openModal({
-      title: ortName(f.ort), wide: true,
-      body: `<div class="lightbox"><img id="lbImg" alt="${esc(f.name)}" class="lb-img">
-        ${idx > 0 ? `<button class="lb-nav prev" data-lb="${list[idx - 1].id}" aria-label="Vorheriges Foto">‹</button>` : ""}
-        ${idx < list.length - 1 ? `<button class="lb-nav next" data-lb="${list[idx + 1].id}" aria-label="Nächstes Foto">›</button>` : ""}</div>
-        <div class="row" style="margin-top:.7rem;justify-content:space-between">
-          <span class="small muted">${idx + 1} / ${list.length} · ${fmtDate(f.am.slice(0, 10), { day: "numeric", month: "short", year: "numeric" })}${f.von && person(t, f.von) ? " · von " + esc(pname(t, person(t, f.von))) : ""}</span>
-          <label class="check small">Ort <select class="input" data-pmove style="padding:.2rem .4rem"><option value="">Reise allgemein</option>${(t.orte || []).map((o) => `<option value="${o.id}" ${o.id === f.ort ? "selected" : ""}>${esc(o.name)}</option>`).join("")}</select></label>
-        </div>`,
-      foot: `<button class="btn danger" data-pdel>Löschen</button><span class="spacer"></span><a class="btn" id="lbDl" download="${esc(f.name.replace(/\.\w+$/, ""))}.jpg">Herunterladen</a><button class="btn primary" data-close>Schließen</button>`,
-      onMount: async (m) => {
-        $$("[data-lb]", m).forEach((b) => b.addEventListener("click", () => openPhoto(t, b.dataset.lb, list)));
-        $("[data-pmove]", m).addEventListener("change", (e) => { f.ort = e.target.value; C.commit(); toast("Zugeordnet."); });
-        $("[data-pdel]", m).addEventListener("click", (e) => {
-          if (!armed(e.currentTarget, "Wirklich löschen?")) return;
-          U.dropBlob(t, f.id); U.dropBlob(t, f.id + "_t");
-          t.fotos = t.fotos.filter((x) => x.id !== f.id); C.closeModal(); C.commit();
-          if (U.isShared(t.id)) U.syncAll({ only: t.id });
-        });
-        const img = $("#lbImg", m);
-        try { img.src = await photoUrl(t, f.id + "_t"); img.src = await photoUrl(t, f.id); $("#lbDl", m).href = img.src; }
-        catch (e) { toast(e.message); }
+    const show = async () => {
+      const f = list[idx]; if (!f) return closeViewer();
+      el.innerHTML = `<div class="pv-top"><span class="pv-count">${idx + 1} / ${list.length}</span><span class="pv-title">${esc(ortName(f.ort))}</span><button class="pv-btn" data-pv="close" aria-label="Schließen">${I.x}</button></div>
+        <div class="pv-stage"><img class="pv-img" alt="${esc(f.name)}"></div>
+        ${idx > 0 ? `<button class="pv-nav prev" data-pv="prev" aria-label="Vorheriges Foto">‹</button>` : ""}
+        ${idx < list.length - 1 ? `<button class="pv-nav next" data-pv="next" aria-label="Nächstes Foto">›</button>` : ""}
+        <div class="pv-bar">
+          <span class="pv-meta">${f.am ? fmtDate(f.am.slice(0, 10), { day: "numeric", month: "short", year: "numeric" }) : ""}${f.von && person(t, f.von) ? " · " + esc(pname(t, person(t, f.von))) : ""}</span>
+          <label class="pv-ort">Etappe <select data-pv-ort><option value="">Reise allgemein</option>${(t.orte || []).map((o, i) => `<option value="${o.id}" ${o.id === f.ort ? "selected" : ""}>${i + 1}. ${esc(o.name)}</option>`).join("")}</select></label>
+          <span class="pv-actions">
+            <button class="pv-btn ${t.cover === f.id ? "on" : ""}" data-pv="cover" title="Als Profilbild der Reise">${I.star}<span>Profilbild</span></button>
+            <a class="pv-btn" data-pv-dl download="${esc((f.name || "foto").replace(/\.\w+$/, ""))}.jpg" title="Herunterladen">${I.dl}</a>
+            <button class="pv-btn" data-pv="del" title="Löschen">${U.ICONS.trash}</button>
+          </span>
+        </div>`;
+      const img = $(".pv-img", el);
+      try { img.src = await photoUrl(t, f.id + "_t"); const full = await photoUrl(t, f.id); if (viewer && list[idx] === f) { img.src = full; const dl = $("[data-pv-dl]", el); if (dl) dl.href = full; } }
+      catch (e) { toast(e.message); }
+      // nächstes Bild vorladen
+      if (list[idx + 1]) photoUrl(t, list[idx + 1].id).catch(() => {});
+    };
+    const go = (d) => { const n = idx + d; if (n < 0 || n >= list.length) return; idx = n; show(); };
+    viewer.go = go;
+    el.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-pv]");
+      if (!b) { if (e.target.classList.contains("pv-stage")) closeViewer(); return; }
+      const f = list[idx], act = b.dataset.pv;
+      if (act === "close") return closeViewer();
+      if (act === "prev") return go(-1);
+      if (act === "next") return go(1);
+      if (act === "cover") { t.cover = t.cover === f.id ? "" : f.id; C.commit(); toast(t.cover ? "Profilbild gesetzt." : "Profilbild entfernt."); return show(); }
+      if (act === "del") {
+        if (!armed(b, "Löschen?")) return;
+        U.dropBlob(t, f.id); U.dropBlob(t, f.id + "_t");
+        t.fotos = t.fotos.filter((x) => x.id !== f.id); if (t.cover === f.id) t.cover = "";
+        list.splice(idx, 1); if (idx >= list.length) idx = list.length - 1;
+        C.commit(); if (U.isShared(t.id)) U.syncAll({ only: t.id });
+        return list.length ? show() : closeViewer();
       }
     });
+    el.addEventListener("change", (e) => { if (e.target.matches("[data-pv-ort]")) { list[idx].ort = e.target.value; C.commit(); toast("Etappe zugeordnet."); show(); } });
+    // Wischen
+    let sx = null, sy = 0;
+    el.addEventListener("pointerdown", (e) => { if (e.target.closest(".pv-bar, .pv-top, .pv-nav")) return; sx = e.clientX; sy = e.clientY; });
+    el.addEventListener("pointerup", (e) => { if (sx == null) return; const dx = e.clientX - sx, dy = e.clientY - sy; sx = null; if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) go(dx < 0 ? 1 : -1); else if (dy > 90) closeViewer(); });
+    show();
   }
+  function closeViewer() { if (!viewer) return; viewer.el.remove(); viewer = null; document.body.classList.remove("pv-open"); }
+  document.addEventListener("keydown", (e) => {
+    if (!viewer) return;
+    if (e.key === "Escape") closeViewer(); else if (e.key === "ArrowLeft") viewer.go(-1); else if (e.key === "ArrowRight") viewer.go(1);
+  });
 
   // ---------- Karte ----------
   let map = null, layer = null, mode = null, fitted = false;
@@ -288,6 +356,15 @@
       map.on("baselayerchange", (e) => { state.ui.mapBase = e.name; C.store.save(); });
       layer = L.featureGroup().addTo(map);
       map.on("click", onMapClick);
+      // Regler: Fotos auf der Karte zeigen
+      const Ctl = L.Control.extend({ options: { position: "topright" }, onAdd() {
+        const d = L.DomUtil.create("label", "map-toggle leaflet-bar");
+        d.innerHTML = `<input type="checkbox" data-mapphotos ${state.ui.mapPhotos === false ? "" : "checked"}><span class="sw"></span><span>Fotos</span>`;
+        L.DomEvent.disableClickPropagation(d);
+        d.querySelector("input").addEventListener("change", (e) => { state.ui.mapPhotos = e.target.checked; C.store.save(); draw(); });
+        return d;
+      } });
+      new Ctl().addTo(map);
     }).catch((e) => { $("#kMap", el).innerHTML = `<div class="empty">${esc(e.message)}</div>`; });
   }
   function draw() {
@@ -307,6 +384,13 @@
         m.bindPopup(`<b>${esc(o.name)}</b><br><span class="muted">${esc(tripName(t))}</span>${o.naechte ? `<br>${o.naechte} ${o.naechte === 1 ? "Nacht" : "Nächte"}` : ""}${nf ? `<br>${nf} ${nf === 1 ? "Foto" : "Fotos"} · <a href="#karte" data-popfotos="${t.id}:${o.id}">ansehen</a>` : ""}`);
         m.on("click", () => { if (!focus) select(t.id, true); });
         m.addTo(layer);
+        // geöffnete Reise: bis zu 3 Fotos der Etappe neben dem Punkt
+        if (focus && state.ui.mapPhotos !== false && nf) {
+          const ph = pick("ort:" + o.id, (t.fotos || []).filter((f) => f.ort === o.id), 3);
+          const html = `<div class="map-ph">${ph.map((f, k) => `<button data-mapph="${t.id}:${o.id}:${f.id}" style="--k:${k}"><img data-thumb="${f.id}" data-trip="${t.id}" alt=""></button>`).join("")}${nf > 3 ? `<span class="more">+${nf - 3}</span>` : ""}</div>`;
+          const pm = L.marker([o.lat, o.lon], { icon: L.divIcon({ className: "map-ph-icon", html, iconSize: [0, 0], iconAnchor: [-16, 30] }), zIndexOffset: -100, keyboard: false }).addTo(layer);
+          const elx = pm.getElement(); if (elx) hydrateThumbs(elx, t);
+        }
       });
     });
     if (!fitted) { fitted = true; sel ? fitTrip(state.trips[sel]) : fitAll(); }
@@ -319,7 +403,8 @@
   function fitAll() { if (!map) return; const p = boundsOf(Object.values(state.trips)); if (p.length) map.fitBounds(p, { padding: [40, 40], maxZoom: 9 }); }
   function fitTrip(t) { if (!map || !t) return; const p = boundsOf([t]); if (p.length) map.fitBounds(p, { padding: [50, 50], maxZoom: 12 }); }
   function select(id, keepView) {
-    state.ui.mapTrip = id; if (!state.ui.mapDetail) state.ui.mapDetail = "ueberblick"; C.store.save();
+    if (state.ui.mapTrip !== id) { state.ui.mapDetail = "ueberblick"; state.ui.fotoFilter = "alle"; }
+    state.ui.mapTrip = id; C.store.save();
     renderSide(); draw(); if (!keepView) fitTrip(state.trips[id]);
   }
   function setMode(m) {
@@ -356,8 +441,10 @@
     const side = $("#kSide"); if (!side) return;
     const sel = state.ui.mapTrip && state.trips[state.ui.mapTrip];
     side.innerHTML = sel ? detailHtml(sel) : listHtml();
-    if (sel && state.ui.mapDetail === "fotos") hydrateThumbs(side, sel);
-    if (sel && state.ui.mapDetail === "ueberblick") hydrateThumbs(side, sel);
+    hydrateThumbs(side, sel);
+    const wide = !!sel && state.ui.mapDetail === "fotos";
+    const lay = side.closest(".karte-layout"); if (lay) { const was = lay.classList.contains("wide-side"); lay.classList.toggle("wide-side", wide); if (was !== wide && map) setTimeout(() => map.invalidateSize(), 80); }
+    $$(".jg", side).forEach(justify);
   }
   function listHtml() {
     const all = Object.values(state.trips);
@@ -379,7 +466,9 @@
       </div>
       <ul class="trip-list">${list.map((t) => {
         const s = tripStats(t), r = reviewAvg(t);
+        const cv = coverOf(t);
         return `<li><button data-mtrip="${t.id}"><span class="dot-c" style="background:${colorOf(t)}"></span>
+          ${cv ? `<span class="tl-cover"><img data-thumb="${cv.id}" data-trip="${t.id}" alt=""></span>` : `<span class="tl-cover empty" aria-hidden="true">${I.photo}</span>`}
           <span class="tl-main"><b>${esc(tripName(t))}</b><small>${t.von ? fmtDate(t.von, { month: "short", year: "numeric" }) + " · " + t.tage + " Tage" : t.jahr || (t.vergangen ? "Datum unbekannt" : t.tage + " Tage")}${s.wKm ? " · " + U.fmtNum(s.wKm, 0) + " km" : ""}${s.hoch ? " · ↑ " + U.fmtNum(s.hoch) + " m" : ""}</small>
           ${!s.orte ? `<small class="warn-txt">noch keine Route</small>` : ""}</span>
           ${r ? stars(r) : ""}</button></li>`;
@@ -391,7 +480,7 @@
     const tabs = [["ueberblick", "Überblick"], ["route", "Route"], ["fotos", `Fotos (${(t.fotos || []).length})`], ["review", "Review"]];
     return `<div class="side-head">
         <button class="btn sm ghost" data-mback>${I.back} Alle Reisen</button>
-        <h2><span class="dot-c" style="background:${colorOf(t)}"></span>${esc(tripName(t))}</h2>
+        <h2><span class="dot-c" style="background:${colorOf(t)}"></span>${coverOf(t) ? `<span class="tl-cover big"><img data-thumb="${coverOf(t).id}" alt=""></span>` : ""}${esc(tripName(t))}</h2>
         <div class="small muted">${t.ziel && t.name ? esc(t.ziel) + " · " : ""}${t.von ? fmtDate(t.von, { day: "numeric", month: "short" }) + " – " + fmtDate(t.bis, { day: "numeric", month: "short", year: "numeric" }) : t.jahr || (t.vergangen ? "Datum unbekannt" : "Datum offen")} · ${t.personen.map((p) => esc(pname(t, p))).join(", ")}</div>
         <div class="seg side-tabs">${tabs.map(([k, l]) => `<button data-mdetail="${k}" class="${tab === k ? "on" : ""}">${l}</button>`).join("")}</div>
       </div>
@@ -401,7 +490,7 @@
     const s = tripStats(t); const r = reviewAvg(t);
     const kpi = (v, l) => (v ? `<div class="kpi"><b>${v}</b><span>${l}</span></div>` : "");
     const hl = Object.entries(t.reviews || {}).map(([pid, x]) => x.highlight && `<blockquote>„${esc(x.highlight)}“<cite>– ${esc(pname(t, person(t, pid)) || "")}</cite></blockquote>`).filter(Boolean);
-    const fotos = (t.fotos || []).slice(-6).reverse();
+    const fotos = pick("ov:" + t.id, t.fotos || [], 6);
     return `<div class="kpis-side">
         ${kpi(t.von ? t.tage : 0, "Tage")}${kpi(s.naechte && s.orte ? s.orte : 0, "Orte")}${kpi(s.wTage, "Wandertage")}${kpi(s.wKm ? U.fmtNum(s.wKm, 1) + " km" : 0, "zu Fuß")}
         ${kpi(s.wMin ? U.fmtDur(s.wMin) : 0, "Gehzeit")}${kpi(s.hoch ? U.fmtNum(s.hoch) + " m" : 0, "Aufstieg")}${kpi(s.runter ? U.fmtNum(s.runter) + " m" : 0, "Abstieg")}
@@ -409,7 +498,7 @@
       </div>
       ${r ? `<p class="ov-rating">${stars(r)} <span class="muted small">${r.toFixed(1).replace(".", ",")} von 5 · ${Object.keys(t.reviews).length} ${Object.keys(t.reviews).length === 1 ? "Bewertung" : "Bewertungen"}</span></p>` : ""}
       ${hl.join("")}
-      ${fotos.length ? `<div class="thumbs small-grid">${fotos.map((f) => `<button data-photo="${f.id}"><img data-thumb="${f.id}" alt=""></button>`).join("")}</div>` : ""}
+      ${fotos.length ? `<div class="jg">${fotos.map((f) => tile(f)).join("")}</div><button class="btn sm ghost" data-mdetail="fotos" style="margin-top:.3rem">Alle ${(t.fotos || []).length} Fotos ansehen</button>` : ""}
       ${!located(t).length ? `<div class="hint">Noch keine Route. Im Reiter <b>Route</b> lassen sich die Orte aus dem Tagesplan übernehmen oder direkt auf der Karte setzen.</div>` : ""}
       <div class="row" style="margin-top:.8rem"><button class="btn sm" data-openplan>Planung öffnen</button><button class="btn sm" data-mdetail="review">Bewerten</button></div>`;
   }
@@ -442,22 +531,29 @@
       </div>
       <p class="hint" style="margin-top:.5rem">Tipp: In Outdooractive die Tour öffnen → „GPX herunterladen“. Dieselbe Datei kannst du auf deine Suunto übertragen und hier hochladen.</p>`;
   }
+  const tile = (f) => `<button class="jg-tile" data-photo="${f.id}" data-ar="${f.w && f.h ? (f.w / f.h).toFixed(3) : 1.5}" title="${esc(f.name || "")}"><img data-thumb="${f.id}" alt="${esc(f.name || "")}" loading="lazy"></button>`;
+  function fotoList(t) {
+    const flt = state.ui.fotoFilter || "alle";
+    return (t.fotos || []).filter((f) => flt === "alle" || (flt === "_" ? !f.ort : f.ort === flt)).sort((a, b) => (a.am || "").localeCompare(b.am || ""));
+  }
   function fotosHtml(t) {
     const flt = state.ui.fotoFilter || "alle";
     const orte = t.orte || [];
-    const list = (t.fotos || []).filter((f) => flt === "alle" || (flt === "_" ? !f.ort : f.ort === flt)).sort((a, b) => a.am.localeCompare(b.am));
-    const count = (k) => (t.fotos || []).filter((f) => (k === "_" ? !f.ort : f.ort === k)).length;
+    const all = t.fotos || [];
+    const count = (k) => all.filter((f) => (k === "_" ? !f.ort : f.ort === k)).length;
+    // Bei „Alle“: Abschnitte je Etappe (in Reihenfolge der Route), sonst eine Galerie
+    const sections = flt === "alle"
+      ? [...orte.map((o, i) => [`${i + 1}. ${o.name}`, all.filter((f) => f.ort === o.id)]), ["Reise allgemein", all.filter((f) => !f.ort || !orte.some((o) => o.id === f.ort))]].filter(([, l]) => l.length)
+      : [[null, fotoList(t)]];
     return `${U.whoAmI(t)}
-      <div class="foto-filter">${[["alle", `Alle (${(t.fotos || []).length})`], ["_", `Reise allgemein (${count("_")})`], ...orte.filter((o) => count(o.id)).map((o) => [o.id, `${o.name} (${count(o.id)})`])]
-        .map(([k, l]) => `<button class="chip chip-s ${flt === k ? "on" : ""}" data-ffilter="${k}">${esc(l)}</button>`).join("")}</div>
-      <div class="foto-drop" data-fdrop>
-        <div class="row" style="gap:.4rem">
-          <select class="input" data-fort style="flex:1;min-width:0"><option value="">Zur Reise allgemein</option>${orte.map((o) => `<option value="${o.id}" ${flt === o.id ? "selected" : ""}>Zu: ${esc(o.name)}</option>`).join("")}</select>
-          <label class="btn sm primary">${I.photo} Fotos hinzufügen<input type="file" accept="image/*" multiple data-fupload hidden></label>
-        </div>
-        <p class="small muted" style="margin:.4rem 0 0">…oder Fotos hierher ziehen. Sie werden verkleinert (max. 2048 px) und verschlüsselt gespeichert.</p>
+      <div class="foto-tools" data-fdrop>
+        <label class="btn sm primary">${I.photo} Fotos hinzufügen<input type="file" accept="image/*" multiple data-fupload hidden></label>
+        <select class="input" data-fort><option value="">zu: Reise allgemein</option>${orte.map((o, i) => `<option value="${o.id}" ${flt === o.id ? "selected" : ""}>zu: ${i + 1}. ${esc(o.name)}</option>`).join("")}</select>
+        <span class="small muted">oder hierher ziehen · Zuordnung später im Foto änderbar</span>
       </div>
-      <div class="thumbs">${list.map((f) => `<button data-photo="${f.id}" title="${esc(f.name)}"><img data-thumb="${f.id}" alt="${esc(f.name)}"></button>`).join("") || `<p class="muted small">Noch keine Fotos.</p>`}</div>`;
+      ${all.length ? `<div class="foto-filter">${[["alle", `Alle (${all.length})`], ...orte.filter((o) => count(o.id)).map((o) => [o.id, `${o.name} (${count(o.id)})`]), ...(count("_") ? [["_", `Allgemein (${count("_")})`]] : [])]
+        .map(([k, l]) => `<button class="chip chip-s ${flt === k ? "on" : ""}" data-ffilter="${k}">${esc(l)}</button>`).join("")}</div>` : ""}
+      ${sections.map(([h, l]) => `${h ? `<h4 class="jg-head">${esc(h)} <span class="muted small">${l.length}</span></h4>` : ""}<div class="jg">${l.map(tile).join("")}</div>`).join("") || `<p class="muted small">Noch keine Fotos. Profilbild, Etappen-Vorschau auf der Karte und Überblick füllen sich automatisch, sobald welche da sind.</p>`}`;
   }
   function reviewHtml(t) {
     const me = C.myId(t);
@@ -510,8 +606,9 @@
     if ((x = q("[data-tdel]"))) { if (!armed(x, "×?")) return; return removeTrack(t, x.dataset.tdel); }
     if ((x = q("[data-ffilter]"))) { state.ui.fotoFilter = x.dataset.ffilter; return renderSide(); }
     if ((x = q("[data-photo]"))) {
-      const flt = state.ui.fotoFilter || "alle";
-      const list = state.ui.mapDetail === "fotos" ? (t.fotos || []).filter((f) => flt === "alle" || (flt === "_" ? !f.ort : f.ort === flt)).sort((a, b) => a.am.localeCompare(b.am)) : (t.fotos || []).slice(-6).reverse();
+      // Reihenfolge wie angezeigt
+      const ids = $$("[data-photo]", $("#kSide")).map((b) => b.dataset.photo);
+      const list = ids.map((id) => (t.fotos || []).find((f) => f.id === id)).filter(Boolean);
       return openPhoto(t, x.dataset.photo, list);
     }
     if ((x = q("[data-rate]"))) {
@@ -546,19 +643,27 @@
     } catch (err) { box.innerHTML = `<p class="small muted">${esc(err.message)}</p>`; }
   }
 
+  let lastTab = null;
   function renderKarte() {
+    if (lastTab !== "karte") { state.ui.mapTrip = null; setMode(null); fitted = false; }
+    lastTab = "karte";
     buildView().then(() => {
       renderSide(); draw();
       if (map) setTimeout(() => map.invalidateSize(), 60);
     });
   }
   PL.views.karte = renderKarte;
+  window.addEventListener("hashchange", () => { if (location.hash !== "#karte") lastTab = location.hash.slice(1); });
+  // Kacheln bei Größenänderung neu verteilen
+  let jt = null; window.addEventListener("resize", () => { clearTimeout(jt); jt = setTimeout(() => $$("#kSide .jg").forEach(justify), 120); });
   const prevInit = PL.init;
   PL.init = () => {
     prevInit();
     const v = $("#view-karte");
     v.addEventListener("click", (e) => {
       if (e.target.closest("[data-cancelmode]")) return setMode(null);
+      const mp = e.target.closest("[data-mapph]");
+      if (mp) { const [tid, oid, fid] = mp.dataset.mapph.split(":"); const t = state.trips[tid]; if (t) openPhoto(t, fid, (t.fotos || []).filter((f) => f.ort === oid)); return; }
       const pf = e.target.closest("[data-popfotos]");
       if (pf) { e.preventDefault(); const [tid, oid] = pf.dataset.popfotos.split(":"); state.ui.mapTrip = tid; state.ui.mapDetail = "fotos"; state.ui.fotoFilter = oid; renderSide(); draw(); return; }
       if (e.target.closest("#kSide")) onSideClick(e);
