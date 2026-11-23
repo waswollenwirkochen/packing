@@ -14,6 +14,7 @@
     file: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M5 2.5h6.5L15 6v11.5H5z"/><path d="M11 2.5V6.5h4"/></svg>',
     clip: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M14.5 9.5l-5 5a3 3 0 0 1-4.2-4.2l6-6a2 2 0 0 1 2.8 2.8l-6 6a1 1 0 0 1-1.4-1.4l5-5"/></svg>',
     excel: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3" y="3" width="14" height="14" rx="2"/><path d="M7 7l6 6M13 7l-6 6"/></svg>',
+    split: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10h5l4-5h5M8 10l4 5h5M14 3l3 2-3 2M14 13l3 2-3 2"/></svg>',
     users: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="7.5" cy="7" r="2.8"/><path d="M2.5 16.5c.6-3 2.6-4.5 5-4.5s4.4 1.5 5 4.5"/><circle cx="14" cy="7.5" r="2.2"/><path d="M13.5 12c2 .1 3.4 1.4 4 4"/></svg>',
     map: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M10 17.5s5.5-5 5.5-9.5a5.5 5.5 0 0 0-11 0c0 4.5 5.5 9.5 5.5 9.5z"/><circle cx="10" cy="8" r="2"/></svg>',
     trash: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 6h12M8 6V4h4v2M6 6l1 11h6l1-11"/></svg>',
@@ -62,6 +63,10 @@
   }
   const fmtDur = (min) => (min ? `${Math.floor(min / 60)}:${String(min % 60).padStart(2, "0")} h` : "–");
   const dateOf = (t, i) => (t.von ? addDays(t.von, i) : "");
+  // Teilreisen: Urlaube mit gleicher „gruppe“ gehören zusammen (z. B. erst zu viert, dann getrennte Wege)
+  const partsOf = (t) => (t.gruppe ? Object.values(state.trips).filter((x) => x.gruppe === t.gruppe).sort((a, b) => (a.von || "").localeCompare(b.von || "") || (a.gruppe === a.id ? -1 : b.gruppe === b.id ? 1 : (a.erstellt || "").localeCompare(b.erstellt || ""))) : [t]);
+  const groupName = (t) => { const main = t.gruppe && state.trips[t.gruppe]; return main ? tripName(main) : tripName(t); };
+  const withMe = (t) => { const me = C.normName(state.profile.name); const named = (t.personen || []).filter((p) => (p.name || "").trim()); return !me || !named.length || named.some((p) => C.normName(p.name) === me); };
   const dayLabel = (t, i, long) => {
     const iso = dateOf(t, i);
     if (!iso) return `Tag ${i + 1}`;
@@ -458,14 +463,20 @@
     const el = $("#view-urlaube");
     const list = Object.values(state.trips);
     const today = C.todayISO();
-    const upcoming = list.filter((t) => !C.isPast(t, today)).sort((a, b) => (a.von || "9999").localeCompare(b.von || "9999"));
-    const past = list.filter((t) => C.isPast(t, today)).sort((a, b) => C.sortKey(b).localeCompare(C.sortKey(a)));
+    // Teilreisen hängen direkt am Hauptteil
+    const gKey = (t) => { const ps = partsOf(t); return [ps[0], ps.indexOf(t)]; };
+    const byGroup = (cmp) => (a, b) => { const [ga, ia] = gKey(a), [gb, ib] = gKey(b); return ga === gb ? ia - ib : cmp(ga, gb); };
+    const upcoming = list.filter((t) => !C.isPast(t, today)).sort(byGroup((a, b) => (a.von || "9999").localeCompare(b.von || "9999")));
+    const past = list.filter((t) => C.isPast(t, today)).sort(byGroup((a, b) => C.sortKey(b).localeCompare(C.sortKey(a))));
     const card = (t) => {
       const d = daysUntil(t.von), running = t.von && t.von <= today && t.bis >= today;
       const when = !t.von ? (t.vergangen ? (t.jahr ? t.jahr : "Datum unbekannt") : `${t.tage} Tage · Datum offen`) : `${fmtDate(t.von, { day: "numeric", month: "short" })} – ${fmtDate(t.bis, { day: "numeric", month: "short", year: "numeric" })} · ${t.tage} Tage`;
       const countdown = running ? `<span class="countdown live">läuft gerade · Tag ${C.dayDiff(t.von, today) + 1}</span>` : d > 0 ? `<span class="countdown">in ${d} ${d === 1 ? "Tag" : "Tagen"}</span>` : "";
       const people = t.personen.map((p) => pname(t, p)).join(", ");
-      return `<button class="card trip-tile" data-open="${t.id}">
+      const ps = partsOf(t), pi = ps.indexOf(t);
+      const partLine = ps.length > 1 ? `<div class="part-line small">${ICONS.split} Teil ${pi + 1} von ${ps.length} · ${esc(groupName(t))}${withMe(t) ? "" : ` · <span class="badge">ohne dich</span>`}</div>` : "";
+      return `<button class="card trip-tile ${ps.length > 1 ? "is-part" : ""} ${ps.length > 1 && pi > 0 ? "part-follow" : ""}" data-open="${t.id}">
+        ${partLine}
         <div class="row" style="justify-content:space-between">${tripBadge(t)}${countdown}</div>
         <h3>${esc(tripName(t))}</h3>
         ${t.ziel && t.name ? `<div class="muted">${esc(t.ziel)}</div>` : ""}
@@ -496,6 +507,62 @@
     const a = e.target.closest("[data-act]"); if (!a) return;
     if (a.dataset.act === "new") openNewUrlaub();
     if (a.dataset.act === "people") state.ui.scrollPeople = true;
+  }
+
+  // ----- Reise aufteilen (Teil mit anderer Besetzung) -----
+  function openSplit(t) {
+    const names = t.personen.map((p) => (p.name || "").trim()).filter(Boolean);
+    const canMove = !!t.von && t.tage > 1;
+    openModal({
+      title: "Reise aufteilen",
+      body: `<p class="small muted">Lege einen Teil an, den ihr in anderer Besetzung gemacht habt – z. B. „erst zu viert, danach getrennte Wege“. Jeder Teil ist ein eigener Urlaub und wird nur mit den Personen geteilt, die dabei waren. Die Teile bleiben verknüpft und stehen in der Liste beieinander. Für jede Gruppe einfach einen eigenen Teil anlegen.</p>
+        <form id="splitForm" class="form-grid">
+          <label class="field c6">Wer war bei diesem Teil dabei?
+            <div class="row wrap" style="gap:.3rem .9rem;margin-top:.3rem">${names.map((n) => `<label class="check-inline"><input type="checkbox" name="p" value="${esc(n)}"> ${esc(n)}</label>`).join("")}</div>
+          </label>
+          <label class="field c6">Weitere Personen <span class="muted">(kommagetrennt, optional)</span><input name="mehr" placeholder="z. B. Mutti"></label>
+          <label class="field c6">Name des Teils<input name="name" placeholder="${esc(tripName(t))} – …"></label>
+          ${canMove ? `<label class="field c6">Tage übernehmen
+            <select name="ab"><option value="">keine – leerer Teil</option>${t.plan.slice(1, t.tage).map((r, i) => `<option value="${i + 1}">ab Tag ${i + 2} (${esc(dayLabel(t, i + 1))}) – diese Tage wandern in den neuen Teil</option>`).join("")}</select></label>
+            <label class="field c3">…oder Anzahl Tage<input name="tage" type="number" min="1" value="1"></label>`
+          : `<label class="field c3">Anzahl Tage <span class="muted">(falls bekannt)</span><input name="tage" type="number" min="1" placeholder="z. B. 7"></label>`}
+          <p class="small muted c6" id="splitMsg">Tipp: Den gemeinsamen Teil behältst du hier – passe in seinen Eckdaten die Personen an (z. B. alle vier) und lege dann pro Gruppe einen Teil an.</p>
+        </form>`,
+      foot: `<button class="btn" data-close>Abbrechen</button><button class="btn primary" type="submit" form="splitForm">${ICONS.split} Teil anlegen</button>`,
+      onMount: (m) => {
+        const f = $("#splitForm", m);
+        const sel = () => [...$$('input[name=p]:checked', m).map((x) => x.value), ...f.mehr.value.split(",").map((x) => C.niceName(x)).filter(Boolean)];
+        const upd = () => { const ps = sel(); f.name.placeholder = `${groupName(t)} – ${ps.length ? ps.join(" & ") : "…"}`; };
+        m.addEventListener("input", upd); upd();
+        f.addEventListener("submit", (e) => {
+          e.preventDefault();
+          const ps = [...new Set(sel())];
+          if (!ps.length) return ($("#splitMsg", m).textContent = "Bitte mindestens eine Person auswählen.");
+          if (!t.gruppe) t.gruppe = t.id;
+          const n = C.newTrip(t.arten);
+          Object.assign(n, { name: f.name.value.trim() || f.name.placeholder, ziel: t.ziel, waehrung: t.waehrung, module: [...t.module], gruppe: t.gruppe, vergangen: t.vergangen, jahr: t.jahr });
+          n.personen = ps.map((name) => ({ id: uid(), name }));
+          const ab = f.ab ? parseInt(f.ab.value, 10) : NaN;
+          if (canMove && ab > 0) {
+            ensurePlan(t);
+            n.von = dateOf(t, ab); n.tage = t.tage - ab; n.bis = addDays(n.von, n.tage - 1);
+            n.plan = t.plan.splice(ab, t.tage - ab);
+            const moved = new Set(n.plan.map((r) => r.id));
+            (t.tickets || []).forEach((x) => { if (moved.has(x.tag)) x.tag = ""; }); // Unterlagen bleiben im ursprünglichen Teil (unter „Allgemein“)
+            t.tage = ab; t.bis = addDays(t.von, t.tage - 1);
+          } else {
+            n.tage = parseInt(f.tage && f.tage.value, 10) || 1;
+            if (t.von) { n.von = addDays(t.bis || t.von, 1); n.bis = addDays(n.von, n.tage - 1); }
+          }
+          const me = n.personen.find((p) => C.normName(p.name) === C.normName(state.profile.name));
+          if (me) state.me[n.id] = me.id; else delete state.me[n.id];
+          state.trips[n.id] = C.migrate(n);
+          closeModal(); C.commit();
+          syncAll();
+          toast(`Teil „${tripName(n)}“ angelegt${me ? "" : " – du bist nicht dabei, er wird aber mit den Verbundenen geteilt"}.`);
+        });
+      }
+    });
   }
 
   // ----- Neuer Urlaub -----
@@ -594,11 +661,13 @@
           </div>
           <span class="spacer"></span>
           ${tripBadge(t)}
+          <button class="btn sm" data-act="split" title="Einen Teil der Reise mit anderer Besetzung anlegen">${ICONS.split} Aufteilen</button>
           <button class="btn sm" data-act="invite">${ICONS.users} Einladen</button>
           <button class="btn sm" data-act="export">${ICONS.excel} Excel</button>
           <button class="btn sm" data-act="map">${ICONS.map} Karte</button>
           <button class="btn sm ghost" data-act="toggle-meta" aria-expanded="${!!state.ui.metaOpen}">${ICON.edit} Eckdaten</button>
         </div>
+        ${partsOf(t).length > 1 ? `<div class="parts-bar small"><span class="muted">${ICONS.split} Teile von „${esc(groupName(t))}“:</span> ${partsOf(t).map((x, i) => `<button class="chip chip-s ${x.id === t.id ? "on" : ""}" data-part="${x.id}">${i + 1}. ${esc(tripName(x))} <span class="muted">(${esc(x.personen.map((p) => pname(x, p)).join(", "))})</span></button>`).join("")}</div>` : ""}
         ${state.ui.metaOpen || !t.von ? `<div class="meta-box">${C.metaFields(t)}
           <div class="row" style="margin-top:.8rem">
             <button class="btn sm" data-act="dup">Duplizieren</button>
@@ -657,11 +726,14 @@
     const t = trip();
     const me = e.target.closest("[data-me]");
     if (me) { C.setMe(t, me.dataset.me); state.ui.viewPerson = me.dataset.me; return C.commit(); }
+    const part = e.target.closest("[data-part]");
+    if (part) { state.current = part.dataset.part; C.store.save(); syncAll({ only: part.dataset.part }); return C.render(); }
     const a = e.target.closest("[data-act]");
     if (!a) return;
     // Eckdaten (Kalender, Reiseart …) übernimmt die gemeinsame Logik
     if (a.closest(".meta-box") && !["dup", "delete", "leave"].includes(a.dataset.act)) return C.onPackClick(e);
     switch (a.dataset.act) {
+      case "split": return openSplit(t);
       case "toggle-meta": state.ui.metaOpen = !state.ui.metaOpen; return C.commit();
       case "view": state.ui.planView = a.dataset.id; return C.commit();
       case "day": return openDay(t, a.dataset.id);
@@ -1589,7 +1661,7 @@
   //  Registrierung & Ereignisse
   // =========================================================
   PL.views = { urlaube: renderUrlaube, plan: renderPlan, unterwegs: renderUnterwegs, kosten: renderKosten, einstellungen: renderSettings };
-  PL.U = { cfgFor, isShared, syncAll, putBlob, getBlob, dropBlob, offlineState, whoAmI, planStats, TYPEN, typName, dayLabel, dateOf,
+  PL.U = { partsOf, withMe, groupName, cfgFor, isShared, syncAll, putBlob, getBlob, dropBlob, offlineState, whoAmI, planStats, TYPEN, typName, dayLabel, dateOf,
     ensurePlan, durMin, fmtDur, num, fmtNum, money, ICONS, online, openDay, tripBadge, fmtSize };
   PL.init = () => {
     // leere, unbenannte Urlaube (z. B. automatisch angelegt von der alten Packliste) entfernen

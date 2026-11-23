@@ -364,8 +364,9 @@
     const today = C.todayISO(); const f = state.ui.mapFilter || "alle"; const q = (state.ui.mapQ || "").toLowerCase();
     const list = all.filter((t) => (f === "alle" || (f === "vergangen" ? C.isPast(t, today) : !C.isPast(t, today))) && (!q || (tripName(t) + " " + (t.ziel || "")).toLowerCase().includes(q)))
       .sort((a, b) => C.sortKey(b).localeCompare(C.sortKey(a)));
-    const done = all.filter((t) => C.isPast(t, today));
-    const tot = done.reduce((a, t) => { const s = tripStats(t); if (t.von) a.tage += t.tage; a.km += s.wKm; a.hm += s.hoch; a.orte += s.orte; return a; }, { tage: 0, km: 0, hm: 0, orte: 0 });
+    const doneAll = all.filter((t) => C.isPast(t, today) && U.withMe(t));
+    const seenG = new Set(); const done = doneAll.filter((t) => { const g = t.gruppe || t.id; if (seenG.has(g)) return false; seenG.add(g); return true; });
+    const tot = doneAll.reduce((a, t) => { const s = tripStats(t); if (t.von) a.tage += t.tage; a.km += s.wKm; a.hm += s.hoch; a.orte += s.orte; return a; }, { tage: 0, km: 0, hm: 0, orte: 0 });
     return `<div class="side-head"><h2>Unsere Reisen</h2>
         <div class="tot-grid">
           <div><b>${done.length}</b><span>Reisen</span></div><div><b>${U.fmtNum(tot.tage)}</b><span>Tage unterwegs</span></div>
