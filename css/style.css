@@ -113,6 +113,23 @@ body.is-dragging, body.is-dragging * { user-select: none; -webkit-user-select: n
 .map-ph button.is-video::after { content: "▶"; position: absolute; inset: 0; display: grid; place-items: center; color: #fff; font-size: .8rem; text-shadow: 0 1px 3px rgba(0,0,0,.7); }
 video.pv-img { background: #000; }
 .pv-loading { position: absolute; bottom: 1rem; left: 50%; transform: translateX(-50%); font-size: .85rem; opacity: .8; }
+.jg-tile { touch-action: manipulation; -webkit-touch-callout: none; user-select: none; }
+.jg-tile img { -webkit-user-drag: none; pointer-events: none; }
+.jg-tile.dragging { opacity: .3; }
+.jg-ghost { position: fixed; left: 0; top: 0; z-index: 4000; pointer-events: none; border-radius: 8px; overflow: hidden; box-shadow: 0 12px 30px rgba(0,0,0,.3); transform-origin: top left; }
+.jg-ghost img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.jg-ghost .vid-badge { display: none; }
+.jg-sec { border-radius: 12px; transition: background .15s, box-shadow .15s; padding: 0 .2rem; margin: 0 -.2rem; }
+.jg-empty { display: none; border: 1.5px dashed var(--line); border-radius: 10px; padding: .7rem; text-align: center; color: var(--ink-3); font-size: .82rem; margin: .3rem 0 .8rem; }
+.jg-sec.is-empty { display: none; }
+.tile-dragging .jg-sec.is-empty { display: block; }
+.tile-dragging .jg-empty { display: block; }
+.jg-sec.drop-on { background: color-mix(in srgb, var(--forest) 10%, transparent); box-shadow: inset 0 0 0 2px var(--forest); }
+.foto-filter .chip.is-empty { display: none; }
+.tile-dragging .foto-filter .chip.is-empty { display: inline-flex; }
+.tile-dragging .foto-filter { position: sticky; top: -.9rem; z-index: 5; background: var(--card, #fffdf7); padding: .4rem 0; box-shadow: 0 6px 10px -8px rgba(0,0,0,.2); }
+.foto-filter .chip.drop-on { background: var(--forest); color: #fff; }
+.jg-tip { margin: .2rem 0 0; }
 .jg-head { margin: .9rem 0 .2rem; font-family: "Fraunces", Georgia, serif; font-size: 1rem; }
 .foto-tools { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; padding: .6rem; border: 1.5px dashed var(--line); border-radius: 12px; margin-bottom: .6rem; }
 .foto-tools select { width: auto; flex: 1; min-width: 10em; }

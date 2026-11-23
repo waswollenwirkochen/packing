@@ -623,17 +623,18 @@
     const count = (k) => all.filter((f) => (k === "_" ? !f.ort : f.ort === k)).length;
     // Bei „Alle“: Abschnitte je Etappe (in Reihenfolge der Route), sonst eine Galerie
     const sections = flt === "alle"
-      ? [...orte.map((o, i) => [`${i + 1}. ${o.name}`, all.filter((f) => f.ort === o.id)]), ["Reise allgemein", all.filter((f) => !f.ort || !orte.some((o) => o.id === f.ort))]].filter(([, l]) => l.length)
-      : [[null, fotoList(t)]];
+      ? (all.length ? [...orte.map((o, i) => [`${i + 1}. ${o.name}`, all.filter((f) => f.ort === o.id), o.id]), ["Reise allgemein", all.filter((f) => !f.ort || !orte.some((o) => o.id === f.ort)), ""]] : [])
+      : [[null, fotoList(t), flt === "_" ? "" : flt]];
     return `${U.whoAmI(t)}
       <div class="foto-tools" data-fdrop>
         <label class="btn sm primary">${I.photo} Hinzufügen<input type="file" accept="image/*,video/*" multiple data-fupload hidden></label>
         <select class="input" data-fort><option value="">zu: Reise allgemein</option>${orte.map((o, i) => `<option value="${o.id}" ${flt === o.id ? "selected" : ""}>zu: ${i + 1}. ${esc(o.name)}</option>`).join("")}</select>
         <span class="small muted">Fotos & Videos – oder einfach hierher ziehen</span>
       </div>
-      ${all.length ? `<div class="foto-filter">${[["alle", `Alle (${all.length})`], ...orte.filter((o) => count(o.id)).map((o) => [o.id, `${o.name} (${count(o.id)})`]), ...(count("_") ? [["_", `Allgemein (${count("_")})`]] : [])]
-        .map(([k, l]) => `<button class="chip chip-s ${flt === k ? "on" : ""}" data-ffilter="${k}">${esc(l)}</button>`).join("")}</div>` : ""}
-      ${sections.map(([h, l]) => `${h ? `<h4 class="jg-head">${esc(h)} <span class="muted small">${l.length}</span></h4>` : ""}<div class="jg">${l.map(tile).join("")}</div>`).join("") || `<p class="muted small">Noch keine Fotos. Profilbild, Etappen-Vorschau auf der Karte und Überblick füllen sich automatisch, sobald welche da sind.</p>`}`;
+      ${all.length ? `<div class="foto-filter">${[["alle", `Alle (${all.length})`], ...orte.map((o) => [o.id, `${o.name} (${count(o.id)})`]), ["_", `Allgemein (${count("_")})`]]
+        .map(([k, l]) => `<button class="chip chip-s ${flt === k ? "on" : ""} ${k !== "alle" && !count(k) && flt !== k ? "is-empty" : ""}" data-ffilter="${k}">${esc(l)}</button>`).join("")}</div>` : ""}
+      ${all.length > 1 && orte.length ? `<p class="small muted jg-tip">Tipp: Kachel auf eine andere Etappe ziehen, um sie umzuordnen${matchMedia("(pointer: coarse)").matches ? " (kurz gedrückt halten)" : ""}.</p>` : ""}
+      ${sections.map(([h, l, oid]) => `<div class="jg-sec ${l.length ? "" : "is-empty"}" data-drop-ort="${oid}">${h ? `<h4 class="jg-head">${esc(h)} <span class="muted small">${l.length}</span></h4>` : ""}${l.length ? `<div class="jg">${l.map(tile).join("")}</div>` : `<div class="jg-empty">hierher ziehen</div>`}</div>`).join("") || `<p class="muted small">Noch keine Fotos. Profilbild, Etappen-Vorschau auf der Karte und Überblick füllen sich automatisch, sobald welche da sind.</p>`}`;
   }
   function reviewHtml(t) {
     const me = C.myId(t);
@@ -723,6 +724,59 @@
     } catch (err) { box.innerHTML = `<p class="small muted">${esc(err.message)}</p>`; }
   }
 
+  let tdrag = null, suppressClick = false;
+  function tileDragStart(e) {
+    const tileEl = e.target.closest(".jg-tile"); if (!tileEl || !tileEl.closest("#kSide [data-drop-ort]")) return;
+    const touch = e.pointerType !== "mouse";
+    tdrag = { el: tileEl, id: tileEl.dataset.photo, x: e.clientX, y: e.clientY, active: false, touch, pid: e.pointerId };
+    if (touch) tdrag.timer = setTimeout(() => { if (tdrag && !tdrag.moved) activateTileDrag(e.clientX, e.clientY); }, 380);
+  }
+  function activateTileDrag(x, y) {
+    const d = tdrag; d.active = true;
+    const r = d.el.getBoundingClientRect();
+    const g = d.el.cloneNode(true); g.className = "jg-ghost"; g.style.width = Math.min(r.width, 140) + "px"; g.style.height = Math.min(r.height, 140) * (Math.min(r.width, 140) / r.width) + "px";
+    const img = g.querySelector("img"); if (img) img.classList.add("loaded");
+    document.body.appendChild(g); d.ghost = g; d.el.classList.add("dragging");
+    document.body.classList.add("is-dragging"); $("#kSide").classList.add("tile-dragging");
+    if (navigator.vibrate) navigator.vibrate(15);
+    moveTileDrag(x, y);
+  }
+  function moveTileDrag(x, y) {
+    const d = tdrag; d.ghost.style.transform = `translate(${x - 30}px, ${y - 30}px)`;
+    d.ghost.style.visibility = "hidden"; const el = document.elementFromPoint(x, y); d.ghost.style.visibility = "";
+    $$("#kSide .drop-on").forEach((z) => z.classList.remove("drop-on"));
+    const chip = el && el.closest("[data-ffilter]:not([data-ffilter=alle])");
+    const sec = el && el.closest("[data-drop-ort]");
+    d.target = chip ? (chip.dataset.ffilter === "_" ? "" : chip.dataset.ffilter) : sec ? sec.dataset.dropOrt : null;
+    (chip || sec) && (chip || sec).classList.add("drop-on");
+    const side = $("#kSide .side-body"); if (side) { const r = side.getBoundingClientRect(); if (y < r.top + 40) side.scrollTop -= 12; else if (y > r.bottom - 40) side.scrollTop += 12; }
+  }
+  window.addEventListener("pointermove", (e) => {
+    const d = tdrag; if (!d || e.pointerId !== d.pid) return;
+    const dist = Math.hypot(e.clientX - d.x, e.clientY - d.y);
+    if (!d.active) {
+      if (d.touch) { if (dist > 10) { d.moved = true; clearTimeout(d.timer); tdrag = null; } return; } // Touch ohne langes Drücken = scrollen
+      if (dist > 6) activateTileDrag(e.clientX, e.clientY); else return;
+    }
+    e.preventDefault(); moveTileDrag(e.clientX, e.clientY);
+  }, { passive: false });
+  window.addEventListener("touchmove", (e) => { if (tdrag && tdrag.active) e.preventDefault(); }, { passive: false });
+  const endTileDrag = () => {
+    const d = tdrag; tdrag = null; if (!d) return; clearTimeout(d.timer);
+    if (!d.active) return;
+    suppressClick = true; setTimeout(() => (suppressClick = false), 50);
+    d.ghost.remove(); d.el.classList.remove("dragging"); document.body.classList.remove("is-dragging");
+    const side = $("#kSide"); side && side.classList.remove("tile-dragging"); $$("#kSide .drop-on").forEach((z) => z.classList.remove("drop-on"));
+    const t = state.trips[state.ui.mapTrip]; if (!t || d.target == null) return;
+    const f = (t.fotos || []).find((x) => x.id === d.id); if (!f || (f.ort || "") === d.target) return;
+    f.ort = d.target;
+    const o = (t.orte || []).find((x) => x.id === d.target);
+    toast(`Zu „${o ? o.name : "Reise allgemein"}“ verschoben.`);
+    C.commit();
+  };
+  window.addEventListener("pointerup", endTileDrag);
+  window.addEventListener("pointercancel", endTileDrag);
+
   let lastTab = null;
   function renderKarte() {
     if (lastTab !== "karte") { state.ui.mapTrip = null; setMode(null); fitted = false; }
@@ -746,8 +800,11 @@
       if (mp) { const [tid, oid, fid] = mp.dataset.mapph.split(":"); const t = state.trips[tid]; if (t) openPhoto(t, fid, (t.fotos || []).filter((f) => f.ort === oid)); return; }
       const pf = e.target.closest("[data-popfotos]");
       if (pf) { e.preventDefault(); const [tid, oid] = pf.dataset.popfotos.split(":"); state.ui.mapTrip = tid; state.ui.mapDetail = "fotos"; state.ui.fotoFilter = oid; renderSide(); draw(); return; }
+      if (suppressClick && e.target.closest(".jg-tile")) return;
       if (e.target.closest("#kSide")) onSideClick(e);
     });
+    v.addEventListener("pointerdown", tileDragStart);
+    v.addEventListener("contextmenu", (e) => { if (e.target.closest(".jg-tile")) e.preventDefault(); });
     v.addEventListener("change", (e) => { if (e.target.closest("#kSide")) onSideChange(e); });
     v.addEventListener("submit", onSideSubmit);
     // Fotos per Drag & Drop
