@@ -30,7 +30,7 @@
     nurBei    ["kaelte"] = nur zeigen, wenn das Modul aktiv ist
 */
 window.PACK_DATA = {
-  version: 2,
+  version: 3,
 
   phasen: [
     { id: "besorgen", name: "Vorher besorgen", info: "Einkaufen, nachfüllen, ausleihen" },
@@ -51,22 +51,22 @@ window.PACK_DATA = {
     }
   ],
 
-  // Reihenfolge = Reihenfolge in der Packliste
+  // Reihenfolge = Reihenfolge in der Packliste (Kleidung oben, dann Ausrüstung, Technik, Hygiene …)
   module: [
     { id: "kleidung", name: "Kleidung" },
-    { id: "ausruestung", name: "Ausrüstung & Ordnung" },
-    { id: "wetter", name: "Wetter" },
     { id: "kaelte", name: "Kälte" },
+    { id: "wetter", name: "Wetter" },
     { id: "schuhe", name: "Schuhe" },
+    { id: "ausruestung", name: "Ausrüstung & Ordnung" },
     { id: "technik", name: "Technik" },
+    { id: "hygiene", name: "Hygiene & Bad" },
+    { id: "apotheke", name: "Reiseapotheke" },
     { id: "schlafen-zelt", name: "Schlafen – Zelt" },
     { id: "schlafen-huette", name: "Schlafen – Hütte" },
     { id: "kochen", name: "Kochen" },
     { id: "wasser", name: "Wasser" },
     { id: "proviant", name: "Reiseproviant" },
     { id: "komfort", name: "Freizeit & Komfort" },
-    { id: "hygiene", name: "Hygiene & Bad" },
-    { id: "apotheke", name: "Reiseapotheke" },
     { id: "dokumente", name: "Dokumente & Geld" }
   ],
 
@@ -190,11 +190,13 @@ window.PACK_DATA = {
     { id: "schlafsack", name: "Schlafsack", modul: "schlafen-zelt", phase: "packen" },
     { id: "inlet", name: "Inlet", modul: "schlafen-zelt", phase: "packen" },
     { id: "sitzkissen", name: "Sitzkissen", modul: "schlafen-zelt", phase: "packen" },
+    { id: "reisekissen", name: "Reisekissen", modul: "schlafen-zelt", phase: "packen" },
     { id: "camplight", name: "Camplight", modul: "schlafen-zelt", phase: "packen", geteilt: true },
 
     // ---------- Schlafen – Hütte ----------
     { id: "huettenschlafsack", name: "Hüttenschlafsack", modul: "schlafen-huette", phase: "packen" },
     { id: "huettensocken", name: "Hüttensocken", modul: "schlafen-huette", einheit: "Paar", phase: "packen" },
+    { id: "reisekissen-huette", name: "Reisekissen", modul: "schlafen-huette", phase: "packen" },
     { id: "huettenbargeld", name: "Bargeld für die Hütten", modul: "schlafen-huette", phase: "abreise", notiz: "viele Hütten nehmen keine Karte" },
     { id: "huettenausweis", name: "DAV-Ausweis / Reservierung", modul: "schlafen-huette", phase: "packen" },
 
@@ -222,7 +224,6 @@ window.PACK_DATA = {
     { id: "reisetagebuch", name: "Reisetagebuch", modul: "komfort", phase: "packen" },
     { id: "stifte", name: "Kuli, Bleistift, Radierer", modul: "komfort", phase: "packen" },
     { id: "schlafmaske", name: "Schlafmaske", modul: "komfort", phase: "packen" },
-    { id: "reisekissen", name: "Reisekissen", modul: "komfort", phase: "packen", optional: true },
     { id: "flachmann", name: "Flachmann", modul: "komfort", phase: "besorgen", optional: true, notiz: "Whiskey / Rum / Kräuter" },
 
     // ---------- Reiseproviant (An-/Abreise, Stadt) ----------

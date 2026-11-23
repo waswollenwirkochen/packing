@@ -25,6 +25,7 @@
   const dayDiff = (a, b) => Math.round((new Date(b + "T12:00:00") - new Date(a + "T12:00:00")) / 864e5);
 
   const ICON = {
+    grip: '<svg viewBox="0 0 20 20" fill="currentColor"><circle cx="7" cy="5" r="1.5"/><circle cx="13" cy="5" r="1.5"/><circle cx="7" cy="10" r="1.5"/><circle cx="13" cy="10" r="1.5"/><circle cx="7" cy="15" r="1.5"/><circle cx="13" cy="15" r="1.5"/></svg>',
     check: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3.2 3L13 4.5"/></svg>',
     skip: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="10" cy="10" r="7"/><path d="M5 15L15 5"/></svg>',
     edit: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M13.5 3.5l3 3L7 16H4v-3z"/></svg>',
@@ -81,11 +82,16 @@
     base.items.forEach((b, idx) => {
       const o = own.items.find((x) => x.id === b.id);
       if (o) ["touren", "gruppeJe", "nichtBei", "nurBei"].forEach((k) => { if (b[k] && o[k] == null) o[k] = clone(b[k]); });
-      else if (["w-hose-lang", "w-leggins-drunter", "huettenbargeld"].includes(b.id)) {
+      else if (["w-hose-lang", "w-leggins-drunter", "huettenbargeld", "reisekissen-huette"].includes(b.id)) {
         const prev = base.items[idx - 1]; const at = prev ? own.items.findIndex((x) => x.id === prev.id) : -1;
         own.items.splice(at + 1, 0, clone(b));
       }
     });
+    if ((own.version || 1) < 3) {
+      const rk = own.items.find((x) => x.id === "reisekissen"); if (rk && rk.modul === "komfort") { rk.modul = "schlafen-zelt"; delete rk.optional; }
+      const pos = (id) => { const i = base.module.findIndex((m) => m.id === id); return i < 0 ? 999 : i; };
+      own.module = own.module.slice().sort((a, b) => pos(a.id) - pos(b.id));
+    }
     own.version = base.version;
   })();
   function editable(which) {
@@ -235,7 +241,7 @@
     const P = PACK();
     if (it.arten && it.arten.length && !it.arten.some((a) => t.arten.includes(a) && (!per || per[a] > 0))) return "nur bei " + it.arten.map((a) => P.arten.find((x) => x.id === a)?.name || a).join(", ");
     if (it.touren && it.touren.length && !it.touren.includes(tourOf(t))) return "nur bei " + it.touren.map((x) => (x === "huette" ? "Hüttentour" : "Zelttour")).join(", ");
-    if (!t.module.includes(it.modul)) return "Modul „" + (P.module.find((m) => m.id === it.modul)?.name || it.modul) + "“ ist aus";
+    if (!t.module.includes(modOf(t, it))) return "Modul „" + (P.module.find((m) => m.id === modOf(t, it))?.name || modOf(t, it)) + "“ ist aus";
     const modName = (id) => P.module.find((m) => m.id === id)?.name || id;
     if ((it.nichtBei || []).some((m) => t.module.includes(m))) return "nicht bei " + it.nichtBei.map(modName).join(", ");
     if ((it.nurBei || []).length && !it.nurBei.some((m) => t.module.includes(m))) return "nur bei " + it.nurBei.map(modName).join(", ");
@@ -246,7 +252,11 @@
     const per = t.arten.length > 1 ? daysPer(t) : null;
     return P.items.filter((it) => !whyNot(t, it, per));
   }
-  const grpOf = (t, it) => (it.gruppeJe && it.gruppeJe[tourOf(t)]) || it.gruppe;
+  // Items lassen sich je Reise verschieben: t.lage[id] = { m: Modul, g: Unterüberschrift, o: Reihenfolge }
+  const lageOf = (t, it) => (t.lage && t.lage[it.id]) || null;
+  const modOf = (t, it) => (lageOf(t, it) && lageOf(t, it).m) || it.modul;
+  const grpOf = (t, it) => { const l = lageOf(t, it); if (l && l.g != null) return l.g || null; return (it.gruppeJe && it.gruppeJe[tourOf(t)]) || it.gruppe; };
+  const ordOf = (t, it) => { const l = lageOf(t, it); return l && l.o != null ? l.o : PACK().items.indexOf(it); };
   function setTour(t, tour) {
     t.tour = tour;
     const add = tour === "huette" ? ["schlafen-huette"] : ["schlafen-zelt", "kochen"];
@@ -516,6 +526,20 @@
       <label class="check" style="margin-top:.4rem"><input type="checkbox" data-act="all-others" ${state.ui.allOthers ? "checked" : ""}> auch Dinge anderer Reisearten zeigen (z. B. Städtetrip)</label></div>${html}`;
   }
 
+  // Reihenfolge: eigene Lage bzw. Stammliste; gleiche Unterüberschriften bleiben zusammen
+  function orderItems(t, list) {
+    const sorted = list.slice().sort((a, b) => ordOf(t, a) - ordOf(t, b));
+    const g = []; sorted.forEach((i) => { const k = grpOf(t, i) || ""; if (!g.includes(k)) g.push(k); });
+    return sorted.sort((a, b) => g.indexOf(grpOf(t, a) || "") - g.indexOf(grpOf(t, b) || "") || ordOf(t, a) - ordOf(t, b));
+  }
+  // Spaltenzahl je nach Bildschirmbreite; Gruppen werden zeilenweise verteilt (Kleidung oben links usw.)
+  function packCols() { const w = window.innerWidth; return w < 760 ? 1 : w < 1250 ? 2 : w < 1750 ? 3 : 4; }
+  function masonry(sections) {
+    const n = packCols(); if (n === 1) return sections.map((x) => x.html).join("");
+    const cols = Array.from({ length: n }, () => ({ h: 0, html: "" }));
+    sections.forEach((x) => { const c = cols.reduce((a, b) => (b.h < a.h - 0.5 ? b : a)); c.html += x.html; c.h += x.h; });
+    return `<div class="mcols" style="--mcols:${n}">${cols.map((c) => `<div class="mcol">${c.html}</div>`).join("")}</div>`;
+  }
   function renderGroups(t) {
     const P = PACK();
     if (state.ui.groupBy === "alles") return renderAlles(t);
@@ -525,8 +549,7 @@
       P.phasen.forEach((ph) => groups.push({ name: ph.name, info: ph.info, items: items.filter((i) => (i.phase || "packen") === ph.id), all: tripItems(t).filter((i) => (i.phase || "packen") === ph.id) }));
     } else {
       // Items gleicher Unterüberschrift zusammenhalten (z. B. „Freizeitoutfit“ bei Hüttentouren)
-      const order = (list) => { const g = []; list.forEach((i) => { const k = grpOf(t, i) || ""; if (!g.includes(k)) g.push(k); }); return list.slice().sort((a, b) => g.indexOf(grpOf(t, a) || "") - g.indexOf(grpOf(t, b) || "")); };
-      P.module.filter((m) => t.module.includes(m.id)).forEach((m) => groups.push({ name: m.name, modul: m.id, items: order(items.filter((i) => i.modul === m.id)), all: tripItems(t).filter((i) => i.modul === m.id) }));
+      P.module.filter((m) => t.module.includes(m.id)).forEach((m) => groups.push({ name: m.name, modul: m.id, items: orderItems(t, items.filter((i) => modOf(t, i) === m.id)), all: tripItems(t).filter((i) => modOf(t, i) === m.id) }));
     }
     const html = groups.filter((g) => g.all.length || (state.edit && g.modul)).map((g) => {
       const d = g.all.filter((i) => ST(t)[i.id] === "gepackt").length;
@@ -534,21 +557,25 @@
       const n = g.all.length - s;
       let list = g.items;
       if (state.ui.hidePacked) list = list.filter((i) => !ST(t)[i.id]);
+      const away = list.filter((i) => ST(t)[i.id] === "weg"); list = list.filter((i) => ST(t)[i.id] !== "weg");
       let rows = "", lastGrp = null;
       list.forEach((i) => {
         const gr = grpOf(t, i);
         if (state.ui.groupBy === "modul" && gr && gr !== lastGrp) { rows += `<li class="subgroup">${esc(gr)}</li>`; lastGrp = gr; }
         rows += itemRow(t, i);
       });
+      if (away.length) rows += `<li class="subgroup away-head">Bleibt diesmal zu Hause</li>` + away.map((i) => itemRow(t, i)).join("");
       if (!rows && g.all.length) rows = `<li class="item muted small" style="cursor:default">Alles erledigt ✓</li>`;
-      return `<section class="card group">
+      g.h = 2.2 + list.length + away.length + (away.length ? 0.8 : 0) + new Set(list.map((i) => grpOf(t, i)).filter(Boolean)).size * 0.8;
+      return `<section class="card group" ${g.modul && state.ui.groupBy !== "phase" ? `data-drop-mod="${g.modul}"` : ""}>
         <div class="group-head"><h3>${esc(g.name)}</h3>${g.info ? `<span class="muted small">${esc(g.info)}</span>` : ""}
           <span class="count">${d}/${n}</span><span class="mini"><i style="width:${n ? (d / n) * 100 : 0}%"></i></span>
           ${state.edit && g.modul ? `<button class="icon-btn" data-act="add-item" data-mod="${g.modul}" title="Item hinzufügen" aria-label="Item hinzufügen">${ICON.plus}</button>` : ""}
         </div>
         <ul class="items">${rows}</ul></section>`;
-    }).join("");
-    return html || `<div class="card empty">Keine Module gewählt. Wähle oben aus, was auf diese Reise mitkommt.</div>`;
+    });
+    const secs = groups.filter((g) => g.all.length || (state.edit && g.modul)).map((g, i) => ({ html: html[i], h: g.h || 3 }));
+    return (secs.length ? masonry(secs) : "") || `<div class="card empty">Keine Module gewählt. Wähle oben aus, was auf diese Reise mitkommt.</div>`;
   }
 
   function itemRow(t, i) {
@@ -565,7 +592,8 @@
       : `<span class="qty ${custom ? "custom" : ""}" title="Regel: ${esc(ruleText(i.menge))}${custom ? " · manuell angepasst (Doppelklick = zurück)" : ""}">
           <button data-act="qty" data-id="${i.id}" data-d="-1" aria-label="weniger">−</button><span data-act="qty-reset" data-id="${i.id}">${qtyOf(t, i)}${esc(unit)}</span><button data-act="qty" data-id="${i.id}" data-d="1" aria-label="mehr">+</button>
         </span>`;
-    return `<li class="item ${st === "gepackt" ? "done" : ""} ${st === "weg" ? "skip" : ""}" data-act="tick" data-id="${i.id}">
+    return `<li class="item ${st === "gepackt" ? "done" : ""} ${st === "weg" ? "skip" : ""}" data-act="tick" data-id="${i.id}" data-item="${i.id}">
+      ${state.ui.groupBy !== "phase" && state.ui.groupBy !== "alles" ? `<span class="drag-grip no-print" data-grip="${i.id}" title="Ziehen, um zu verschieben" aria-label="${esc(i.name)} verschieben">${ICON.grip}</span>` : ""}
       <span class="tick" role="checkbox" aria-checked="${st === "gepackt"}" tabindex="0" aria-label="${esc(i.name)} erledigt">${ICON.check}</span>
       <div class="i-main">
         <div class="i-name">${esc(i.name)} ${i.optional ? '<span class="badge optional">optional</span>' : ""}</div>
@@ -624,6 +652,7 @@
   }
 
   function onPackClick(e) {
+    if (e.target.closest("[data-grip]")) return;
     const a = e.target.closest("[data-act]"); if (!a) return;
     const t = trip(); const id = a.dataset.id; const act = a.dataset.act;
     if (a.tagName === "SELECT" || (a.tagName === "INPUT" && a.type !== "button")) return;
@@ -1519,6 +1548,7 @@
     });
     document.title = TITLES[tab] + (t && TRIP_TABS.includes(tab) ? " · " + tripName(t) : "") + " · Urlaubsplanung";
     setBackground(tab);
+    document.body.dataset.tab = tab;
     renderBanner();
     if (window.PL.renderHeader) window.PL.renderHeader();
     if (tab === "packliste") renderPack();
@@ -1536,6 +1566,75 @@
   vp.addEventListener("change", onPackChange);
   vp.addEventListener("dblclick", (e) => { const a = e.target.closest('[data-act="qty-reset"]'); if (a) { delete trip().menge[a.dataset.id]; commit(); } });
   vp.addEventListener("keydown", (e) => { if ((e.key === " " || e.key === "Enter") && e.target.classList.contains("tick")) { e.preventDefault(); e.target.closest(".item").click(); } });
+  // Items zwischen den Modulen verschieben (Griff ziehen – Maus und Touch)
+  let drag = null;
+  vp.addEventListener("pointerdown", (e) => {
+    const grip = e.target.closest("[data-grip]"); if (!grip) return;
+    e.preventDefault(); e.stopPropagation();
+    const li = grip.closest(".item"); const r = li.getBoundingClientRect();
+    const ghost = li.cloneNode(true); ghost.classList.add("drag-ghost"); ghost.style.width = r.width + "px";
+    document.body.appendChild(ghost);
+    const mark = document.createElement("div"); mark.className = "drop-mark";
+    drag = { id: grip.dataset.grip, li, ghost, mark, dy: e.clientY - r.top, x: r.left, target: null };
+    li.classList.add("dragging");
+    grip.setPointerCapture && grip.setPointerCapture(e.pointerId);
+    moveDrag(e);
+  });
+  function moveDrag(e) {
+    if (!drag) return;
+    drag.ghost.style.transform = `translate(${e.clientX - 30}px, ${e.clientY - drag.dy}px)`;
+    drag.ghost.style.visibility = "hidden";
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    drag.ghost.style.visibility = "";
+    if (el && el.closest(".drop-mark")) return; // über der Markierung: Ziel bleibt
+    let over = el && el.closest(".item[data-item]");
+    if (!over && el && el.closest(".items")) {
+      // zwischen zwei Zeilen: nächstgelegene Zeile nehmen
+      let best = null, bd = 1e9;
+      el.closest(".items").querySelectorAll(".item[data-item]").forEach((x) => { const r = x.getBoundingClientRect(); const d = Math.abs(e.clientY - (r.top + r.height / 2)); if (d < bd) { bd = d; best = x; } });
+      if (best && bd < 60) over = best;
+    }
+    const sec = el && el.closest("[data-drop-mod]");
+    drag.mark.remove(); drag.target = null;
+    if (over && over !== drag.li && over.closest("[data-drop-mod]")) {
+      const r = over.getBoundingClientRect(); const after = e.clientY > r.top + r.height / 2;
+      over.parentNode.insertBefore(drag.mark, after ? over.nextSibling : over);
+      drag.target = { mod: over.closest("[data-drop-mod]").dataset.dropMod, ref: over.dataset.item, after };
+    } else if (sec) {
+      sec.querySelector(".items").appendChild(drag.mark);
+      drag.target = { mod: sec.dataset.dropMod, ref: null };
+    }
+    // am Rand automatisch scrollen
+    if (e.clientY < 70) window.scrollBy(0, -14); else if (e.clientY > window.innerHeight - 50) window.scrollBy(0, 14);
+  }
+  window.addEventListener("pointermove", (e) => { if (drag) { e.preventDefault(); moveDrag(e); } }, { passive: false });
+  window.addEventListener("pointerup", () => {
+    if (!drag) return;
+    const d = drag; drag = null; d.ghost.remove(); d.mark.remove(); d.li.classList.remove("dragging");
+    if (!d.target) return;
+    const t = trip(); const P = PACK();
+    const it = P.items.find((x) => x.id === d.id); if (!it) return;
+    t.lage ||= {};
+    const inMod = orderItems(t, tripItems(t).filter((i) => modOf(t, i) === d.target.mod && i.id !== d.id && ST(t)[i.id] !== "weg"));
+    let o, g;
+    if (d.target.ref) {
+      const k = inMod.findIndex((i) => i.id === d.target.ref);
+      const ref = inMod[k]; g = grpOf(t, ref) || "";
+      const nb = d.target.after ? inMod[k + 1] : inMod[k - 1];
+      const a = ordOf(t, ref), b = nb && (grpOf(t, nb) || "") === g ? ordOf(t, nb) : a + (d.target.after ? 1 : -1);
+      o = (a + b) / 2;
+    } else {
+      const last = inMod[inMod.length - 1];
+      g = last ? grpOf(t, last) || "" : ""; o = last ? ordOf(t, last) + 1 : 0;
+    }
+    t.lage[d.id] = { m: d.target.mod, g, o };
+    if (d.target.mod !== it.modul) toast(`„${it.name}“ liegt jetzt unter ${P.module.find((m) => m.id === d.target.mod)?.name || d.target.mod}.`);
+    commit();
+  });
+  // Spaltenzahl bei Größenänderung anpassen
+  let lastCols = null;
+  window.addEventListener("resize", () => { const n = (typeof packCols === "function") ? packCols() : 1; if (lastCols !== null && n !== lastCols && state.ui.tab === "packliste") render(); lastCols = n; });
+
   // Tage im Reiseverlauf markieren (tippen oder ziehen)
   let painting = false;
   function paintAt(x, y) {
