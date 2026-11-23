@@ -93,11 +93,13 @@ body.is-dragging, body.is-dragging * { user-select: none; -webkit-user-select: n
 .away-head { color: var(--rust) !important; }
 @media print { .mcols { display: block; columns: 2; column-gap: 8mm; } .mcol { display: contents; } }
 /* Weltkarte: Profilbilder, Kachelgalerie, Betrachter, Fotos auf der Karte */
-.tl-cover { width: 40px; height: 40px; border-radius: 10px; overflow: hidden; flex: none; background: var(--paper-2); display: inline-grid; place-items: center; color: #c3bba5; }
+.tl-cover { width: 40px; height: 40px; min-height: 40px; max-height: 40px; align-self: center; border-radius: 10px; overflow: hidden; flex: none; background: var(--paper-2); display: inline-grid; place-items: center; color: #c3bba5; }
 .tl-cover img { width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity .3s; }
 .tl-cover img.loaded { opacity: 1; }
-.tl-cover.empty svg { width: 18px; height: 18px; }
-.tl-cover.big { width: 46px; height: 46px; border-radius: 12px; }
+.tl-cover.tl-ph { background: color-mix(in srgb, var(--c) 16%, #fffdf7); color: var(--c); font-family: "Fraunces", Georgia, serif; font-weight: 700; font-size: 1.15rem; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 25%, transparent); }
+.tl-cover.big { width: 46px; height: 46px; min-height: 46px; max-height: 46px; border-radius: 12px; }
+.side-tabs button small { font-size: .75em; opacity: .65; margin-left: .15em; }
+.side-tabs button { white-space: nowrap; }
 .karte-layout.wide-side { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
 .jg { display: flex; flex-wrap: wrap; gap: 4px; margin: .4rem 0 .9rem; }
 .jg-tile { padding: 0; border: 0; background: var(--paper-2); border-radius: 6px; overflow: hidden; cursor: zoom-in; flex: none; width: 160px; height: 110px; }
@@ -110,7 +112,7 @@ body.is-dragging, body.is-dragging * { user-select: none; -webkit-user-select: n
 .map-ph button.is-video::after { content: "▶"; position: absolute; inset: 0; display: grid; place-items: center; color: #fff; font-size: .8rem; text-shadow: 0 1px 3px rgba(0,0,0,.7); }
 video.pv-img { background: #000; }
 .pv-loading { position: absolute; bottom: 1rem; left: 50%; transform: translateX(-50%); font-size: .85rem; opacity: .8; }
-.jg-head { margin: .9rem 0 .2rem; font-family: var(--serif, inherit); font-size: 1rem; }
+.jg-head { margin: .9rem 0 .2rem; font-family: "Fraunces", Georgia, serif; font-size: 1rem; }
 .foto-tools { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; padding: .6rem; border: 1.5px dashed var(--line); border-radius: 12px; margin-bottom: .6rem; }
 .foto-tools select { width: auto; flex: 1; min-width: 10em; }
 .foto-tools.drag-over { border-color: var(--forest); background: var(--paper); }

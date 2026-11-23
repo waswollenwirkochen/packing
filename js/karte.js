@@ -540,7 +540,7 @@
         const s = tripStats(t), r = reviewAvg(t);
         const cv = coverOf(t);
         return `<li><button data-mtrip="${t.id}"><span class="dot-c" style="background:${colorOf(t)}"></span>
-          ${cv ? `<span class="tl-cover"><img data-thumb="${cv.id}" data-trip="${t.id}" alt=""></span>` : `<span class="tl-cover empty" aria-hidden="true">${I.photo}</span>`}
+          ${cv ? `<span class="tl-cover"><img data-thumb="${cv.id}" data-trip="${t.id}" alt=""></span>` : `<span class="tl-cover tl-ph" aria-hidden="true" style="--c:${colorOf(t)}">${esc((tripName(t).match(/\p{L}/u) || ["?"])[0].toUpperCase())}</span>`}
           <span class="tl-main"><b>${esc(tripName(t))}</b><small>${t.von ? fmtDate(t.von, { month: "short", year: "numeric" }) + " · " + t.tage + " Tage" : t.jahr || (t.vergangen ? "Datum unbekannt" : t.tage + " Tage")}${s.wKm ? " · " + U.fmtNum(s.wKm, 0) + " km" : ""}${s.hoch ? " · ↑ " + U.fmtNum(s.hoch) + " m" : ""}</small>
           ${!s.orte ? `<small class="warn-txt">noch keine Route</small>` : ""}</span>
           ${r ? stars(r) : ""}</button></li>`;
@@ -549,7 +549,7 @@
   }
   function detailHtml(t) {
     const tab = state.ui.mapDetail || "ueberblick";
-    const tabs = [["ueberblick", "Überblick"], ["route", "Route"], ["fotos", `Fotos & Videos (${(t.fotos || []).length})`], ["review", "Review"]];
+    const tabs = [["ueberblick", "Überblick"], ["route", "Route"], ["fotos", `Impressionen${(t.fotos || []).length ? ` <small>${(t.fotos || []).length}</small>` : ""}`], ["review", "Review"]];
     return `<div class="side-head">
         <button class="btn sm ghost" data-mback>${I.back} Alle Reisen</button>
         <h2><span class="dot-c" style="background:${colorOf(t)}"></span>${coverOf(t) ? `<span class="tl-cover big"><img data-thumb="${coverOf(t).id}" alt=""></span>` : ""}${esc(tripName(t))}</h2>
@@ -619,9 +619,9 @@
       : [[null, fotoList(t)]];
     return `${U.whoAmI(t)}
       <div class="foto-tools" data-fdrop>
-        <label class="btn sm primary">${I.photo} Fotos & Videos<input type="file" accept="image/*,video/*" multiple data-fupload hidden></label>
+        <label class="btn sm primary">${I.photo} Hinzufügen<input type="file" accept="image/*,video/*" multiple data-fupload hidden></label>
         <select class="input" data-fort><option value="">zu: Reise allgemein</option>${orte.map((o, i) => `<option value="${o.id}" ${flt === o.id ? "selected" : ""}>zu: ${i + 1}. ${esc(o.name)}</option>`).join("")}</select>
-        <span class="small muted">oder hierher ziehen · Videos bis 50 MB (größere werden auf 720p verkleinert) · Zuordnung später änderbar</span>
+        <span class="small muted">Fotos & Videos – oder einfach hierher ziehen</span>
       </div>
       ${all.length ? `<div class="foto-filter">${[["alle", `Alle (${all.length})`], ...orte.filter((o) => count(o.id)).map((o) => [o.id, `${o.name} (${count(o.id)})`]), ...(count("_") ? [["_", `Allgemein (${count("_")})`]] : [])]
         .map(([k, l]) => `<button class="chip chip-s ${flt === k ? "on" : ""}" data-ffilter="${k}">${esc(l)}</button>`).join("")}</div>` : ""}
