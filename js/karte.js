@@ -524,10 +524,24 @@
     const trackKm = (t.tracks || []).reduce((a, x) => a + (x.km || 0), 0);
     return { ...s, wKm: s.wKm || trackKm, orte: located(t).length, naechte: (t.orte || []).reduce((a, o) => a + (+o.naechte || 0), 0) };
   }
+  let keepScroll = false;
+  // Auswahl ohne Neuaufbau aktualisieren (sonst springt die Ansicht nach oben)
+  function selUpdate(t) {
+    const side = $("#kSide"), bar = side && $(".sel-bar", side);
+    if (!bar || !bar.classList.contains("on")) { keepScroll = true; return renderSide(); }
+    $$(".jg-tile[data-photo]", side).forEach((b) => b.classList.toggle("sel", sel.ids.has(b.dataset.photo)));
+    const n = sel.ids.size, all = (t.fotos || []).length;
+    const b = $("b", bar); if (b) b.textContent = `${n} ausgewählt`;
+    const sa = $("[data-selall]", bar); if (sa) sa.textContent = n === all ? "Keine" : "Alle";
+    $$("[data-selmove],[data-seldel]", bar).forEach((x) => (x.disabled = !n));
+  }
   function renderSide() {
     const side = $("#kSide"); if (!side) return;
     const sel = state.ui.mapTrip && state.trips[state.ui.mapTrip];
+    const sb0 = $(".side-body", side), keep = keepScroll && sb0 ? sb0.scrollTop : null, wy = keepScroll ? window.scrollY : null; keepScroll = false;
     side.innerHTML = sel ? detailHtml(sel) : listHtml();
+    if (keep != null) { const sb = $(".side-body", side); if (sb) sb.scrollTop = keep; }
+    if (wy != null) window.scrollTo(0, wy);
     hydrateThumbs(side, sel);
     const wide = !!sel && state.ui.mapDetail === "fotos";
     const lay = side.closest(".karte-layout"); if (lay) { const was = lay.classList.contains("wide-side"); lay.classList.toggle("wide-side", wide); if (was !== wide && map) setTimeout(() => map.invalidateSize(), 80); }
@@ -701,9 +715,9 @@
     if ((x = q("[data-tdl]"))) return downloadGpx(t, t.tracks.find((y) => y.id === x.dataset.tdl));
     if ((x = q("[data-tdel]"))) { if (!armed(x, "×?")) return; return removeTrack(t, x.dataset.tdel); }
     if ((x = q("[data-ffilter]"))) { state.ui.fotoFilter = x.dataset.ffilter; return renderSide(); }
-    if (q("[data-selon]")) { sel.on = true; sel.ids.clear(); return renderSide(); }
-    if (q("[data-seldone]")) { sel.on = false; sel.ids.clear(); return renderSide(); }
-    if (q("[data-selall]")) { const all = (t.fotos || []).map((f) => f.id); if (sel.ids.size === all.length) sel.ids.clear(); else all.forEach((id) => sel.ids.add(id)); return renderSide(); }
+    if (q("[data-selon]")) { sel.on = true; sel.ids.clear(); keepScroll = true; return renderSide(); }
+    if (q("[data-seldone]")) { sel.on = false; sel.ids.clear(); keepScroll = true; return renderSide(); }
+    if (q("[data-selall]")) { const all = (t.fotos || []).map((f) => f.id); if (sel.ids.size === all.length) sel.ids.clear(); else all.forEach((id) => sel.ids.add(id)); return selUpdate(t); }
     if ((x = q("[data-seldel]"))) {
       if (!sel.ids.size || !armed(x, `${sel.ids.size} löschen?`)) return;
       sel.ids.forEach((id) => { U.dropBlob(t, id); U.dropBlob(t, id + "_t"); if (t.cover === id) t.cover = ""; });
@@ -716,7 +730,7 @@
         const ids = $$(".jg-tile[data-photo]", $("#kSide")).map((b) => b.dataset.photo); const a = ids.indexOf(sel.last), b = ids.indexOf(id);
         ids.slice(Math.min(a, b), Math.max(a, b) + 1).forEach((y) => sel.ids.add(y));
       } else sel.ids.has(id) ? sel.ids.delete(id) : sel.ids.add(id);
-      sel.last = id; return renderSide();
+      sel.last = id; return selUpdate(t);
     }
     if ((x = q("[data-photo]"))) {
       // Reihenfolge wie angezeigt
