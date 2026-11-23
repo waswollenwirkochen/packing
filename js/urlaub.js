@@ -195,6 +195,10 @@
   // Pro Verbindung gibt es ein Postfach inbox/<id>.enc, verschlüsselt mit einem gemeinsamen Schlüssel.
   // Darin: alle Urlaube, an denen beide beteiligt sind (Urlaub-id → Schlüssel). Beide Seiten lesen und ergänzen es.
   const norm = (x) => C.normName(x);
+  async function fp(k) {
+    const h = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(k))));
+    return [...h.slice(0, 3)].map((b) => b.toString(16).padStart(2, "0")).join("").toUpperCase();
+  }
   function dropContacts(pred) {
     const gone = state.contacts.filter(pred).map((c) => c.id);
     if (state.syncCfg) state.syncCfg.contactsGone = [...new Set([...(state.syncCfg.contactsGone || []), ...gone])];
@@ -354,7 +358,8 @@
         if (state.syncCfg) await pushInboxes();
         if (state.syncCfg) await pushKeyring();
         C.store.save();
-        state.contacts.filter((c) => sync.broken.has(c.id)).forEach((c) => errs.push(`Die Verbindung mit ${c.name} passt nicht mehr – bitte ${c.name} um einen neuen Verbindungs-Link bitten (bzw. unter Einstellungen → Mitreisende einen neuen erzeugen).`));
+        const brokenNames = [...new Set(state.contacts.filter((c) => sync.broken.has(c.id)).map((c) => c.name))];
+        brokenNames.forEach((n) => errs.push(`Die Verbindung mit ${n} passt nicht – bitte ${n} um einen neuen Verbindungs-Link bitten (bei ${n}: Einstellungen → Mitreisende → Link → „Neuen Link erzeugen“).`));
         if (errs.length) setStatus("error", errs.join(" · "));
         else setStatus("ok");
         if (JSON.stringify(state.trips) !== before) C.render();
@@ -1079,7 +1084,7 @@
   const baseUrl = () => location.href.split("#")[0];
   function connectLink(c) {
     const cfg = state.syncCfg;
-    return baseUrl() + "#connect=" + enc64({ v: 1, o: cfg.o, r: cfg.r, t: cfg.t, c: c.id, k: c.k, n: c.name, f: state.profile.name || "" });
+    return baseUrl() + "#connect=" + enc64({ v: 1, o: cfg.o, r: cfg.r, t: cfg.t, c: c.id, k: c.k, n: c.name, f: state.profile.name || "", h: c.fp || "" });
   }
   function peopleList() {
     const groups = new Map();
@@ -1118,12 +1123,16 @@
       ${state.syncCfg.invite ? `<p class="hint">Auf deinen anderen Geräten öffnest du einfach wieder deinen Einladungslink und gibst dein Passwort ein. <button class="btn sm" data-act="mylink">Meinen Link kopieren</button></p>` : ""}
     </div>`;
   }
-  function showConnectLink(c) {
+  async function showConnectLink(c) {
+    if (!c.fp) { c.fp = await fp(c.k); C.store.save(); }
+    let check = "";
+    try { const box = await readInbox(c); check = box ? `<span class="badge vegan">Freigabe geprüft ✓</span>` : `<span class="badge warn">Freigabe passt nicht – bitte „Neuen Link erzeugen“</span>`; } catch { check = ""; }
     const link = connectLink(c);
     const n = Object.values(state.trips).filter((t) => tripHas(t, c.name)).length;
     openModal({
       title: `Mit ${c.name} verbinden`,
       body: `<p>Schick ${esc(c.name)} diesen Link. Damit bekommt ${esc(c.name)} ${n === 1 ? "eure gemeinsame Reise" : `alle ${n} gemeinsamen Reisen`} und kann die App danach auch für eigene Urlaube nutzen. Neue Urlaube, in denen „${esc(c.name)}“ steht, erscheinen automatisch bei ${esc(c.name)}.</p>
+        <p class="small muted">Prüfcode: <b>${c.fp}</b> ${check}</p>
         <label class="field">Verbindungs-Link<textarea class="export-text" style="min-height:110px" readonly>${esc(link)}</textarea></label>
         <div class="hint" style="margin-top:.6rem;line-height:1.5"><b>Wichtig:</b> Der Link ist ein Schlüssel – nur direkt verschicken (z. B. Signal, WhatsApp). ${esc(c.name)} wählt beim Öffnen ein eigenes Passwort. Eure Reisen liegen verschlüsselt in deinem Daten-Repo; was ${esc(c.name)} alleine plant, kannst du nicht lesen.</div>`,
       foot: `<button class="btn" data-rekey title="Falls der Link nicht funktioniert: neue Verbindung mit neuem Schlüssel">Neuen Link erzeugen</button><button class="btn" data-close>Schließen</button><button class="btn primary" data-copy>Link kopieren</button>`,
@@ -1152,9 +1161,12 @@
     if (a.dataset.act === "mylink") { C.copyText(baseUrl() + "#connect=" + state.syncCfg.invite, "Link kopiert."); return true; }
     return false;
   }
-  function handleConnect(code) {
+  async function handleConnect(code) {
     let inv;
     try { inv = dec64(code); if (!inv.c || !inv.k || !inv.o) throw new Error(); } catch { toast("Der Verbindungs-Link ist ungültig."); return; }
+    if (inv.h && inv.h !== await fp(inv.k)) {
+      return openModal({ title: "Link beschädigt", body: `<p>Der Link wurde beim Verschicken verändert. Bitte ${esc(inv.f || "die Person")}, ihn noch einmal zu schicken – am besten über „Link kopieren“ und ohne ihn zu bearbeiten.</p>`, foot: `<button class="btn primary" data-close>OK</button>` });
+    }
     const ring = `keys/c_${inv.c}.enc`;
     if (state.syncCfg) {
       const mine = state.contacts.find((c) => c.id === inv.c);
@@ -1198,7 +1210,11 @@
             if (existing) { try { await S.decJSON(cfg.mk, JSON.parse(atob(existing.content)).data); } catch { return say("Passwort falsch."); } }
             state.syncCfg = cfg;
             state.profile.name = C.niceName(f.name.value) || inv.n || "";
-            if (!state.contacts.some((c) => c.id === inv.c)) state.contacts.push({ id: inv.c, name: C.niceName(inv.f || "Mitreisende Person"), k: inv.k });
+            const nm = C.niceName(inv.f || "Mitreisende Person");
+            dropContacts((c) => c.id !== inv.c && norm(c.name) === norm(nm));
+            if (!state.contacts.some((c) => c.id === inv.c)) state.contacts.push({ id: inv.c, name: nm, k: inv.k });
+            else state.contacts.find((c) => c.id === inv.c).k = inv.k;
+            sync.broken.clear();
             Object.values(state.keys).forEach((k) => { if (k.owner === undefined) k.owner = true; });
             C.store.save(); closeModal(); toast("Verbunden – lade eure Reisen …");
             await syncAll(); location.hash = "urlaube"; C.render();
