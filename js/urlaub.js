@@ -215,13 +215,14 @@
   async function readInbox(c) {
     const cfg = state.syncCfg; cfg.inbox ||= {};
     const f = await S.getFile(cfg, `inbox/${c.id}.enc`);
-    let trips = {};
+    let trips = {}, rings = [];
     if (f) {
-      try { trips = (await S.decJSON(c.k, f.content)).trips || {}; }
+      try { const d = await S.decJSON(c.k, f.content); trips = d.trips || {}; rings = d.rings || []; }
       catch { sync.broken.add(c.id); cfg.inbox[c.id] = null; return null; }
     }
     sync.broken.delete(c.id);
-    cfg.inbox[c.id] = { sha: f ? f.sha : null, trips };
+    rings = [...new Set([...rings, ...(c.rings || [])])];
+    cfg.inbox[c.id] = { sha: f ? f.sha : null, trips, rings };
     return cfg.inbox[c.id];
   }
   async function pullInboxes() {
@@ -245,10 +246,12 @@
         if (!box) break;
         const want = { ...box.trips };
         Object.values(state.trips).forEach((t) => { if (tripHas(t, c.name) && state.keys[t.id] && !isRemoved(t.id) && !want[t.id]) want[t.id] = state.keys[t.id].k; });
-        if (box.sha && S.eq(want, box.trips)) break;
+        const rings = [...new Set([...(box.rings || []), ...(cfg.ring ? [cfg.ring] : [])])];
+        if (box.sha && S.eq(want, box.trips) && S.eq(rings, box.rings || [])) break;
         try {
-          const res = await S.putFile(cfg, `inbox/${c.id}.enc`, await S.encJSON(c.k, { v: 1, trips: want }), box.sha, "Gemeinsame Urlaube aktualisiert");
-          cfg.inbox[c.id] = { sha: res.content.sha, trips: want };
+          const res = await S.putFile(cfg, `inbox/${c.id}.enc`, await S.encJSON(c.k, { v: 1, trips: want, rings }), box.sha, "Gemeinsame Urlaube aktualisiert");
+          cfg.inbox[c.id] = { sha: res.content.sha, trips: want, rings };
+          delete c.rings;
           break;
         } catch (e) {
           if (e.status !== 409 && e.status !== 422) throw e;
@@ -1140,7 +1143,8 @@
         $("[data-copy]", m).addEventListener("click", () => C.copyText(link, "Link kopiert."));
         $("[data-rekey]", m).addEventListener("click", (e) => {
           if (!armed(e.currentTarget, "Alter Link wird ungültig – nochmal tippen")) return;
-          const n2 = { id: uid() + uid(), name: c.name, k: S.randomKey() };
+          const oldBox = state.syncCfg.inbox && state.syncCfg.inbox[c.id];
+          const n2 = { id: uid() + uid(), name: c.name, k: S.randomKey(), rings: (oldBox && oldBox.rings) || [] };
           dropContacts((x) => x.id === c.id); state.contacts.push(n2); C.store.save();
           closeModal(); toast("Neuer Link wird vorbereitet …");
           syncAll().then(() => { C.render(); showConnectLink(n2); });
@@ -1196,18 +1200,40 @@
       foot: `<button class="btn" data-close>Abbrechen</button><button class="btn primary" type="submit" form="connForm">Verbinden</button>`,
       onMount: async (m) => {
         const say = (x) => { $("#connMsg", m).textContent = x; };
-        let existing = null;
+        let existing = null, olds = [];
         try { existing = await S.getFile(cfg, ring); } catch (e) { say(e.message || String(e)); }
-        if (existing) { $("[data-p2]", m).remove(); say("Willkommen zurück – gib dein Passwort ein."); }
+        if (!existing) {
+          // Gibt es schon ein Konto dieser Person (aus einem früheren Link)? Dann wird es weiterverwendet.
+          try {
+            const box = await S.getFile(cfg, `inbox/${inv.c}.enc`);
+            if (box) { const d = await S.decJSON(inv.k, box.content); olds = (d.rings || []).filter((r) => r !== ring); }
+          } catch { /* egal */ }
+        }
+        const p2 = $("[data-p2]", m);
+        if (existing) { p2.remove(); say("Willkommen zurück – gib dein Passwort ein."); }
+        else if (olds.length) { p2.hidden = true; say("Du hast die App schon genutzt? Dann gib dein bisheriges Passwort ein – deine Reisen werden übernommen."); }
         $("#connForm", m).addEventListener("submit", async (e) => {
           e.preventDefault(); const f = e.target;
           try {
             let salt;
-            if (existing) salt = JSON.parse(atob(existing.content)).salt;
+            if (!existing && olds.length) {
+              say("Suche dein bisheriges Konto …");
+              for (const r of olds) {
+                const fr = await S.getFile(cfg, r); if (!fr) continue;
+                const w = JSON.parse(atob(fr.content));
+                const mk = await S.deriveMaster(f.pass.value, w.salt);
+                try { await S.decJSON(mk, w.data); cfg.ring = r; cfg.salt = w.salt; cfg.mk = mk; existing = fr; break; } catch { /* nicht dieses */ }
+              }
+              if (!existing && p2.hidden) { p2.hidden = false; return say("Kein bisheriges Konto mit diesem Passwort gefunden. Falls du neu bist: Passwort wiederholen und erneut auf „Verbinden“ tippen."); }
+            }
+            if (existing && cfg.mk) { /* bisheriges Konto gefunden */ }
+            else if (existing) salt = JSON.parse(atob(existing.content)).salt;
             else { if (f.pass.value !== f.pass2.value) return say("Die Passwörter stimmen nicht überein."); salt = S.bytesToB64(crypto.getRandomValues(new Uint8Array(16))); }
-            say("Leite Schlüssel ab …");
-            cfg.salt = salt; cfg.mk = await S.deriveMaster(f.pass.value, salt);
-            if (existing) { try { await S.decJSON(cfg.mk, JSON.parse(atob(existing.content)).data); } catch { return say("Passwort falsch."); } }
+            if (!cfg.mk) {
+              say("Leite Schlüssel ab …");
+              cfg.salt = salt; cfg.mk = await S.deriveMaster(f.pass.value, salt);
+              if (existing) { try { await S.decJSON(cfg.mk, JSON.parse(atob(existing.content)).data); } catch { cfg.mk = null; return say("Passwort falsch."); } }
+            }
             state.syncCfg = cfg;
             state.profile.name = C.niceName(f.name.value) || inv.n || "";
             const nm = C.niceName(inv.f || "Mitreisende Person");
