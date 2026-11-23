@@ -24,9 +24,13 @@
     arten     ["wandern"] oder ["stadt"] = nur bei dieser Reiseart (leer = bei allen)
               Reisearten lassen sich in einem Trip kombinieren (Kombi-Urlaub).
     gewicht   Gramm pro Stück (optional, für die Gewichtssumme)
+    touren    ["zelt"] oder ["huette"] = nur bei dieser Art von Wanderurlaub
+    gruppeJe  andere Unterüberschrift je Tourart, z. B. { huette: "Freizeitoutfit" }
+    nichtBei  ["kaelte"] = ausblenden, wenn das Modul aktiv ist (z. B. kurze Hose bei Kälte)
+    nurBei    ["kaelte"] = nur zeigen, wenn das Modul aktiv ist
 */
 window.PACK_DATA = {
-  version: 1,
+  version: 2,
 
   phasen: [
     { id: "besorgen", name: "Vorher besorgen", info: "Einkaufen, nachfüllen, ausleihen" },
@@ -87,7 +91,7 @@ window.PACK_DATA = {
     { id: "shampoo", name: "Shampoo / Seife", modul: "hygiene", phase: "packen", geteilt: true, notiz: "beim Wandern: biologisch abbaubar" },
     { id: "nivea", name: "Nivea / Creme", modul: "hygiene", phase: "packen" },
     { id: "sonnencreme", name: "Sonnencreme", modul: "hygiene", phase: "packen", geteilt: true },
-    { id: "mueckenspray", name: "Mückenspray", modul: "hygiene", phase: "besorgen", geteilt: true },
+    { id: "mueckenspray", name: "Mückenspray", modul: "hygiene", phase: "besorgen", geteilt: true, nichtBei: ["kaelte"] },
     { id: "nagelknipser", name: "Nagelknipser", modul: "hygiene", phase: "packen", geteilt: true },
     { id: "wattestaebchen", name: "Wattestäbchen", modul: "hygiene", phase: "packen", arten: ["stadt"] },
     { id: "feuchttuecher", name: "Feuchttücher", modul: "hygiene", einheit: "Pack", phase: "besorgen" },
@@ -109,7 +113,7 @@ window.PACK_DATA = {
     // ---------- Kleidung ----------
     // Basics (bei jeder Reiseart)
     { id: "unterwaesche", name: "Unterwäsche", modul: "kleidung", gruppe: "Basics", menge: { basis: 1, proTag: 1, max: 6 }, mengeJe: { wandern: { basis: 2, proTag: 0.34, max: 4 } }, phase: "packen", notiz: "ab Obergrenze wird gewaschen" },
-    { id: "badehose", name: "Badehose", modul: "kleidung", gruppe: "Basics", phase: "packen", optional: true },
+    { id: "badehose", name: "Badehose", modul: "kleidung", gruppe: "Basics", phase: "packen", optional: true, nichtBei: ["kaelte"] },
     { id: "bh", name: "BH", modul: "kleidung", gruppe: "Basics", menge: { basis: 1, proTag: 0.3, max: 3 }, phase: "packen", optional: true },
     { id: "sport-bh", name: "Sport-BH", modul: "kleidung", gruppe: "Basics", menge: { basis: 1, proTag: 0.2, max: 2 }, phase: "packen", optional: true },
     // Stadt
@@ -121,23 +125,25 @@ window.PACK_DATA = {
     { id: "s-merino-ls", name: "Merino-Longsleeve", modul: "kleidung", gruppe: "Stadt", menge: { basis: 1, proTag: 0.15, max: 2 }, phase: "packen", arten: ["stadt"] },
     { id: "s-pullover", name: "Pullover / Fleece", modul: "kleidung", gruppe: "Stadt", menge: { basis: 1, proTag: 0.15, max: 2 }, phase: "packen", arten: ["stadt"] },
     { id: "s-hose-lang", name: "Hose, lang", modul: "kleidung", gruppe: "Stadt", menge: { basis: 1, proTag: 0.15, max: 2 }, phase: "packen", arten: ["stadt"] },
-    { id: "s-hose-kurz", name: "Hose, kurz", modul: "kleidung", gruppe: "Stadt", phase: "packen", optional: true, arten: ["stadt"], notiz: "je nach Wetterbericht" },
+    { id: "s-hose-kurz", name: "Hose, kurz", modul: "kleidung", gruppe: "Stadt", phase: "packen", optional: true, arten: ["stadt"], notiz: "je nach Wetterbericht", nichtBei: ["kaelte"] },
     { id: "s-leggins", name: "Leggins (Schlafen / drunter)", modul: "kleidung", gruppe: "Stadt", phase: "packen", arten: ["stadt"] },
     { id: "s-laufhose", name: "Laufhose", modul: "kleidung", gruppe: "Stadt", phase: "packen", optional: true, arten: ["stadt"] },
     // Wandern
-    { id: "w-sunhoodie", name: "Sun Hoodie (Poly)", modul: "kleidung", gruppe: "Wanderoutfit", phase: "packen", arten: ["wandern"] },
+    { id: "w-sunhoodie", name: "Sun Hoodie (Poly)", modul: "kleidung", gruppe: "Wanderoutfit", phase: "packen", arten: ["wandern"], nichtBei: ["kaelte"] },
     { id: "w-shirt-merino", name: "Merino-Shirt", modul: "kleidung", gruppe: "Wanderoutfit", phase: "packen", arten: ["wandern"] },
-    { id: "w-shorts", name: "Shorts", modul: "kleidung", gruppe: "Wanderoutfit", phase: "packen", arten: ["wandern"] },
-    { id: "w-beinlinge", name: "Beinlinge", modul: "kleidung", gruppe: "Wanderoutfit", einheit: "Paar", phase: "packen", arten: ["wandern"] },
+    { id: "w-shorts", name: "Shorts", modul: "kleidung", gruppe: "Wanderoutfit", phase: "packen", arten: ["wandern"], nichtBei: ["kaelte"] },
+    { id: "w-beinlinge", name: "Beinlinge", modul: "kleidung", gruppe: "Wanderoutfit", einheit: "Paar", phase: "packen", arten: ["wandern"], nichtBei: ["kaelte"] },
+    { id: "w-hose-lang", name: "Wanderhose, lang", modul: "kleidung", gruppe: "Wanderoutfit", phase: "packen", arten: ["wandern"], nurBei: ["kaelte"] },
+    { id: "w-leggins-drunter", name: "Merino-Leggins (drunter)", modul: "kleidung", gruppe: "Wanderoutfit", phase: "packen", arten: ["wandern"], nurBei: ["kaelte"], touren: ["huette"] },
     { id: "w-socken-lang", name: "Wandersocken, lang", modul: "kleidung", gruppe: "Wanderoutfit", einheit: "Paar", menge: { basis: 2, proTag: 0.34, max: 4 }, phase: "packen", arten: ["wandern"] },
     { id: "w-fleece-duenn", name: "Fleece, dünn", modul: "kleidung", gruppe: "Wanderoutfit", phase: "packen", optional: true, arten: ["wandern"], notiz: "für kühle Etappen" },
-    { id: "w-fleece-dick", name: "Fleece, dick", modul: "kleidung", gruppe: "Campoutfit", phase: "packen", arten: ["wandern"] },
-    { id: "w-ls-merino-duenn", name: "Merino-Langarm, dünn", modul: "kleidung", gruppe: "Campoutfit", phase: "packen", arten: ["wandern"] },
-    { id: "w-ziphose", name: "Zip-Hose", modul: "kleidung", gruppe: "Campoutfit", phase: "packen", arten: ["wandern"] },
-    { id: "w-longsleeve-poly", name: "Longsleeve (Poly)", modul: "kleidung", gruppe: "Campoutfit", phase: "packen", optional: true, arten: ["wandern"], notiz: "Backup" },
-    { id: "w-ls-merino-dick", name: "Merino-Langarm, dick", modul: "kleidung", gruppe: "Schlafoutfit", phase: "packen", arten: ["wandern"] },
-    { id: "w-leggins-merino", name: "Merino-Leggins", modul: "kleidung", gruppe: "Schlafoutfit", phase: "packen", arten: ["wandern"] },
-    { id: "w-socken-dick", name: "Socken, lang & dick", modul: "kleidung", gruppe: "Schlafoutfit", einheit: "Paar", phase: "packen", arten: ["wandern"] },
+    { id: "w-fleece-dick", name: "Fleece, dick", modul: "kleidung", gruppe: "Campoutfit", phase: "packen", arten: ["wandern"], gruppeJe: { huette: "Freizeitoutfit" } },
+    { id: "w-ls-merino-duenn", name: "Merino-Langarm, dünn", modul: "kleidung", gruppe: "Campoutfit", phase: "packen", arten: ["wandern"], gruppeJe: { huette: "Freizeitoutfit" } },
+    { id: "w-ziphose", name: "Zip-Hose", modul: "kleidung", gruppe: "Campoutfit", phase: "packen", arten: ["wandern"], gruppeJe: { huette: "Freizeitoutfit" } },
+    { id: "w-longsleeve-poly", name: "Longsleeve (Poly)", modul: "kleidung", gruppe: "Campoutfit", phase: "packen", optional: true, arten: ["wandern"], notiz: "Backup", touren: ["zelt"] },
+    { id: "w-ls-merino-dick", name: "Merino-Langarm, dick", modul: "kleidung", gruppe: "Schlafoutfit", phase: "packen", arten: ["wandern"], touren: ["zelt"] },
+    { id: "w-leggins-merino", name: "Merino-Leggins", modul: "kleidung", gruppe: "Schlafoutfit", phase: "packen", arten: ["wandern"], touren: ["zelt"] },
+    { id: "w-socken-dick", name: "Socken, lang & dick", modul: "kleidung", gruppe: "Schlafoutfit", einheit: "Paar", phase: "packen", arten: ["wandern"], touren: ["zelt"] },
 
     // ---------- Wetter ----------
     { id: "regenjacke", name: "Regenjacke", modul: "wetter", phase: "packen" },
@@ -189,6 +195,7 @@ window.PACK_DATA = {
     // ---------- Schlafen – Hütte ----------
     { id: "huettenschlafsack", name: "Hüttenschlafsack", modul: "schlafen-huette", phase: "packen" },
     { id: "huettensocken", name: "Hüttensocken", modul: "schlafen-huette", einheit: "Paar", phase: "packen" },
+    { id: "huettenbargeld", name: "Bargeld für die Hütten", modul: "schlafen-huette", phase: "abreise", notiz: "viele Hütten nehmen keine Karte" },
     { id: "huettenausweis", name: "DAV-Ausweis / Reservierung", modul: "schlafen-huette", phase: "packen" },
 
     // ---------- Kochen ----------
@@ -205,9 +212,9 @@ window.PACK_DATA = {
     // ---------- Wasser ----------
     { id: "trinkblase", name: "Trinkblase (3 l)", modul: "wasser", phase: "packen" },
     { id: "wasserflasche", name: "Wasserflasche (1 l)", modul: "wasser", phase: "packen" },
-    { id: "wassersack", name: "Wassersack + Dusche (4–5 l)", modul: "wasser", phase: "packen", geteilt: true },
-    { id: "wassertabletten", name: "Wasserentkeimungstabletten", modul: "wasser", einheit: "Pack", phase: "besorgen", geteilt: true },
-    { id: "geschmacksneutralisierer", name: "Neutralisierer gegen Chlorgeschmack", modul: "wasser", einheit: "Pack", phase: "besorgen", geteilt: true, optional: true },
+    { id: "wassersack", name: "Wassersack + Dusche (4–5 l)", modul: "wasser", phase: "packen", geteilt: true, touren: ["zelt"] },
+    { id: "wassertabletten", name: "Wasserentkeimungstabletten", modul: "wasser", einheit: "Pack", phase: "besorgen", geteilt: true, touren: ["zelt"] },
+    { id: "geschmacksneutralisierer", name: "Neutralisierer gegen Chlorgeschmack", modul: "wasser", einheit: "Pack", phase: "besorgen", geteilt: true, optional: true, touren: ["zelt"] },
     { id: "hydratabs", name: "HydraTabs / Elektrolyte", modul: "wasser", menge: { basis: 0, proTag: 1 }, phase: "besorgen" },
 
     // ---------- Komfort & Freizeit ----------

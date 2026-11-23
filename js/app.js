@@ -74,6 +74,20 @@
 
   const PACK = () => (state.data && state.data.pack) || window.PACK_DATA;
   const REZ = () => (state.data && state.data.rezept) || window.REZEPT_DATA;
+  // selbst bearbeitete Packliste um neue Regeln/Items der aktuellen Version ergänzen
+  (function upgradePack() {
+    const own = state.data && state.data.pack, base = window.PACK_DATA;
+    if (!own || (own.version || 1) >= base.version) return;
+    base.items.forEach((b, idx) => {
+      const o = own.items.find((x) => x.id === b.id);
+      if (o) ["touren", "gruppeJe", "nichtBei", "nurBei"].forEach((k) => { if (b[k] && o[k] == null) o[k] = clone(b[k]); });
+      else if (["w-hose-lang", "w-leggins-drunter", "huettenbargeld"].includes(b.id)) {
+        const prev = base.items[idx - 1]; const at = prev ? own.items.findIndex((x) => x.id === prev.id) : -1;
+        own.items.splice(at + 1, 0, clone(b));
+      }
+    });
+    own.version = base.version;
+  })();
   function editable(which) {
     if (!state.data) state.data = {};
     if (!state.data[which]) state.data[which] = clone(which === "pack" ? window.PACK_DATA : window.REZEPT_DATA);
@@ -214,10 +228,30 @@
   const bringers = (t, item) => tagsOf(t, item).filter((x) => x !== "gemeinsam");
   const isShared = (t, item) => tagsOf(t, item).includes("gemeinsam");
 
+  // Wanderurlaub als Zelt- oder Hüttentour
+  const tourOf = (t) => (t.arten.includes("wandern") ? (t.tour || "zelt") : null);
+  // Warum ist ein Item (nicht) in dieser Reise? null = ist dabei
+  function whyNot(t, it, per = t.arten.length > 1 ? daysPer(t) : null) {
+    const P = PACK();
+    if (it.arten && it.arten.length && !it.arten.some((a) => t.arten.includes(a) && (!per || per[a] > 0))) return "nur bei " + it.arten.map((a) => P.arten.find((x) => x.id === a)?.name || a).join(", ");
+    if (it.touren && it.touren.length && !it.touren.includes(tourOf(t))) return "nur bei " + it.touren.map((x) => (x === "huette" ? "Hüttentour" : "Zelttour")).join(", ");
+    if (!t.module.includes(it.modul)) return "Modul „" + (P.module.find((m) => m.id === it.modul)?.name || it.modul) + "“ ist aus";
+    const modName = (id) => P.module.find((m) => m.id === id)?.name || id;
+    if ((it.nichtBei || []).some((m) => t.module.includes(m))) return "nicht bei " + it.nichtBei.map(modName).join(", ");
+    if ((it.nurBei || []).length && !it.nurBei.some((m) => t.module.includes(m))) return "nur bei " + it.nurBei.map(modName).join(", ");
+    return null;
+  }
   function tripItems(t) {
     const P = PACK();
     const per = t.arten.length > 1 ? daysPer(t) : null;
-    return P.items.filter((it) => t.module.includes(it.modul) && (!it.arten || !it.arten.length || it.arten.some((a) => t.arten.includes(a) && (!per || per[a] > 0))));
+    return P.items.filter((it) => !whyNot(t, it, per));
+  }
+  const grpOf = (t, it) => (it.gruppeJe && it.gruppeJe[tourOf(t)]) || it.gruppe;
+  function setTour(t, tour) {
+    t.tour = tour;
+    const add = tour === "huette" ? ["schlafen-huette"] : ["schlafen-zelt", "kochen"];
+    const drop = tour === "huette" ? ["schlafen-zelt", "kochen"] : ["schlafen-huette"];
+    t.module = PACK().module.map((m) => m.id).filter((id) => (t.module.includes(id) || add.includes(id)) && !drop.includes(id));
   }
   function visibleItems(t) {
     let items = tripItems(t);
@@ -327,6 +361,8 @@
             ${P.arten.map((a) => `<button class="chip ${t.arten.includes(a.id) ? "on" : ""}" data-act="toggle-art" data-id="${a.id}" aria-pressed="${t.arten.includes(a.id)}">${esc(a.name)}</button>`).join("")}
           </div>
         </div>
+        ${t.arten.includes("wandern") ? `<div class="field m-tour"><span>Wanderurlaub als</span><div class="seg" role="group" aria-label="Tourart">
+            <button data-act="set-tour" data-id="zelt" class="${tourOf(t) === "zelt" ? "on" : ""}">Zelttour</button><button data-act="set-tour" data-id="huette" class="${tourOf(t) === "huette" ? "on" : ""}">Hüttentour</button></div></div>` : ""}
         <div class="field m-date">Reisezeitraum
           <div class="date-row">
             <input class="input" data-bind="von" value="${toDE(t.von)}" placeholder="TT.MM.JJJJ" inputmode="numeric" aria-label="Von">
@@ -408,6 +444,8 @@
             ${P.arten.map((a) => `<button class="chip ${t.arten.includes(a.id) ? "on" : ""}" data-act="toggle-art" data-id="${a.id}" aria-pressed="${t.arten.includes(a.id)}">${esc(a.name)}</button>`).join("")}
           </div>
         </div>
+        ${t.arten.includes("wandern") ? `<div class="field"><span>Wanderurlaub als</span><div class="seg" role="group" aria-label="Tourart">
+            <button data-act="set-tour" data-id="zelt" class="${tourOf(t) === "zelt" ? "on" : ""}">Zelttour</button><button data-act="set-tour" data-id="huette" class="${tourOf(t) === "huette" ? "on" : ""}">Hüttentour</button></div></div>` : ""}
         <button class="btn sm no-print" data-act="open-meta" style="align-self:flex-start">${ICON.edit} Zeitraum &amp; Teilnehmende bearbeiten</button>
         ${multi ? `<label class="field no-print">Ich bin
           <select class="input" data-act="set-me"><option value="">– bitte wählen –</option>${t.personen.map((p) => `<option value="${p.id}" ${p.id === myId(t) ? "selected" : ""}>${esc(pname(t, p))}</option>`).join("")}</select></label>` : ""}
@@ -439,6 +477,7 @@
           <div class="seg" role="group" aria-label="Gruppieren nach">
             <button data-act="group" data-id="modul" class="${state.ui.groupBy === "modul" ? "on" : ""}">Nach Modul</button>
             <button data-act="group" data-id="phase" class="${state.ui.groupBy === "phase" ? "on" : ""}">Nach Packphase</button>
+            <button data-act="group" data-id="alles" class="${state.ui.groupBy === "alles" ? "on" : ""}" title="Komplette Stammliste zum Vergleich">Alles</button>
           </div>
           ${multi ? `<label class="check">Ansicht
             <select class="input" data-act="view-person"><option value="alle">Alle Items</option>${t.personen.map((p) => `<option value="${p.id}" ${state.ui.viewPerson === p.id ? "selected" : ""}>Was bringt ${esc(pname(t, p))} mit?</option>`).join("")}</select></label>` : ""}
@@ -455,14 +494,39 @@
     </div>`;
   }
 
+  // Gesamtübersicht: die komplette Stammliste – was ist in dieser Reise dabei, was nicht (und warum)
+  function renderAlles(t) {
+    const P = PACK(); const per = t.arten.length > 1 ? daysPer(t) : null;
+    const st = ST(t);
+    let inN = 0, outN = 0;
+    const html = P.module.map((m) => {
+      const otherArt = (i) => i.arten && i.arten.length && !i.arten.some((a) => t.arten.includes(a));
+      const its = P.items.filter((i) => i.modul === m.id && (state.ui.allOthers || !otherArt(i))); if (!its.length) return "";
+      let last = null;
+      const rows = its.map((i) => {
+        const why = whyNot(t, i, per); why ? outN++ : inN++;
+        const gr = grpOf(t, i); let sub = "";
+        if (gr && gr !== last) { sub = `<li class="subgroup">${esc(gr)}</li>`; last = gr; }
+        const mark = why ? `<span class="all-mark out" aria-label="nicht dabei">–</span>` : st[i.id] === "gepackt" ? `<span class="all-mark done">${ICON.check}</span>` : st[i.id] === "weg" ? `<span class="all-mark skip" title="bleibt zu Hause">${ICON.skip}</span>` : `<span class="all-mark in" aria-label="dabei"></span>`;
+        return sub + `<li class="all-row ${why ? "out" : ""}">${mark}<span class="all-name">${esc(i.name)}${i.optional ? ' <span class="badge optional">optional</span>' : ""}</span>${why ? `<span class="all-why">${esc(why)}</span>` : ""}</li>`;
+      }).join("");
+      return `<section class="card group all-group"><div class="group-head"><h3>${esc(m.name)}</h3>${t.module.includes(m.id) ? "" : `<button class="btn sm" data-act="toggle-mod" data-id="${m.id}">${ICON.plus} Modul dazunehmen</button>`}</div><ul class="items">${rows}</ul></section>`;
+    }).join("");
+    return `<div class="card card-pad all-intro small"><b>Alles im Vergleich:</b> die komplette Stammliste. <b>${inN}</b> Dinge sind in dieser Reise dabei, <b>${outN}</b> nicht – mit Grund daneben. So siehst du, ob durch Tourart, Wetter oder Module etwas Wichtiges herausgefallen ist.
+      <label class="check" style="margin-top:.4rem"><input type="checkbox" data-act="all-others" ${state.ui.allOthers ? "checked" : ""}> auch Dinge anderer Reisearten zeigen (z. B. Städtetrip)</label></div>${html}`;
+  }
+
   function renderGroups(t) {
     const P = PACK();
+    if (state.ui.groupBy === "alles") return renderAlles(t);
     const items = visibleItems(t);
     const groups = [];
     if (state.ui.groupBy === "phase") {
       P.phasen.forEach((ph) => groups.push({ name: ph.name, info: ph.info, items: items.filter((i) => (i.phase || "packen") === ph.id), all: tripItems(t).filter((i) => (i.phase || "packen") === ph.id) }));
     } else {
-      P.module.filter((m) => t.module.includes(m.id)).forEach((m) => groups.push({ name: m.name, modul: m.id, items: items.filter((i) => i.modul === m.id), all: tripItems(t).filter((i) => i.modul === m.id) }));
+      // Items gleicher Unterüberschrift zusammenhalten (z. B. „Freizeitoutfit“ bei Hüttentouren)
+      const order = (list) => { const g = []; list.forEach((i) => { const k = grpOf(t, i) || ""; if (!g.includes(k)) g.push(k); }); return list.slice().sort((a, b) => g.indexOf(grpOf(t, a) || "") - g.indexOf(grpOf(t, b) || "")); };
+      P.module.filter((m) => t.module.includes(m.id)).forEach((m) => groups.push({ name: m.name, modul: m.id, items: order(items.filter((i) => i.modul === m.id)), all: tripItems(t).filter((i) => i.modul === m.id) }));
     }
     const html = groups.filter((g) => g.all.length || (state.edit && g.modul)).map((g) => {
       const d = g.all.filter((i) => ST(t)[i.id] === "gepackt").length;
@@ -472,7 +536,8 @@
       if (state.ui.hidePacked) list = list.filter((i) => !ST(t)[i.id]);
       let rows = "", lastGrp = null;
       list.forEach((i) => {
-        if (state.ui.groupBy === "modul" && i.gruppe && i.gruppe !== lastGrp) { rows += `<li class="subgroup">${esc(i.gruppe)}</li>`; lastGrp = i.gruppe; }
+        const gr = grpOf(t, i);
+        if (state.ui.groupBy === "modul" && gr && gr !== lastGrp) { rows += `<li class="subgroup">${esc(gr)}</li>`; lastGrp = gr; }
         rows += itemRow(t, i);
       });
       if (!rows && g.all.length) rows = `<li class="item muted small" style="cursor:default">Alles erledigt ✓</li>`;
@@ -612,6 +677,7 @@
         break;
       case "brush": brush = id; break;
       case "open-meta": state.ui.metaOpen = true; location.hash = "plan"; return;
+      case "set-tour": setTour(t, id); toast(id === "huette" ? "Hüttentour: Hüttenschlafsack statt Zelt, Wander- und Freizeitoutfit." : "Zelttour: Zelt, Kochen, Camp- und Schlafoutfit."); break;
       case "toggle-mod": t.module = t.module.includes(id) ? t.module.filter((m) => m !== id) : [...t.module, id]; break;
       case "group": state.ui.groupBy = id; break;
       case "new-trip": return window.PL.openNewUrlaub ? window.PL.openNewUrlaub() : null;
@@ -657,6 +723,7 @@
       case "view-person": state.ui.viewPerson = a.value; break;
       case "hide-packed": state.ui.hidePacked = a.checked; break;
       case "hide-opt": state.ui.hideOptional = a.checked; break;
+      case "all-others": state.ui.allOthers = a.checked; break;
       default: return;
     }
     commit();
