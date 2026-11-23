@@ -104,6 +104,12 @@ body.is-dragging, body.is-dragging * { user-select: none; -webkit-user-select: n
 .jg-tile img { width: 100%; height: 100%; object-fit: cover; display: block; opacity: 0; transition: opacity .3s, transform .3s; }
 .jg-tile img.loaded { opacity: 1; }
 .jg-tile:hover img { transform: scale(1.03); }
+.jg-tile { position: relative; }
+.vid-badge { position: absolute; left: 6px; bottom: 6px; background: rgba(0,0,0,.6); color: #fff; font-size: .72rem; font-weight: 700; padding: .12rem .45rem; border-radius: 99px; }
+.map-ph button { position: relative; }
+.map-ph button.is-video::after { content: "▶"; position: absolute; inset: 0; display: grid; place-items: center; color: #fff; font-size: .8rem; text-shadow: 0 1px 3px rgba(0,0,0,.7); }
+video.pv-img { background: #000; }
+.pv-loading { position: absolute; bottom: 1rem; left: 50%; transform: translateX(-50%); font-size: .85rem; opacity: .8; }
 .jg-head { margin: .9rem 0 .2rem; font-family: var(--serif, inherit); font-size: 1rem; }
 .foto-tools { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; padding: .6rem; border: 1.5px dashed var(--line); border-radius: 12px; margin-bottom: .6rem; }
 .foto-tools select { width: auto; flex: 1; min-width: 10em; }

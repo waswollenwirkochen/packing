@@ -212,22 +212,85 @@
     const blob = await new Promise((r) => cv.toBlob(r, "image/jpeg", q));
     return { bytes: new Uint8Array(await blob.arrayBuffer()), w, h };
   }
+  // ---------- Videos ----------
+  const VIDEO_MAX = 50 * 1048576; // GitHub nimmt Dateien bis ca. 100 MB an; verschlüsselt + Base64 bleibt so Luft
+  const isVideoFile = (f) => f.type.startsWith("video/") || /\.(mp4|mov|m4v|webm|3gp)$/i.test(f.name);
+  const isVideo = (f) => f && f.typ === "video";
+  function loadVideo(src) {
+    return new Promise((res, rej) => {
+      const v = document.createElement("video"); v.muted = true; v.playsInline = true; v.preload = "auto"; v.src = src;
+      v.onloadedmetadata = () => res(v); v.onerror = () => rej(new Error("Video lässt sich in diesem Browser nicht lesen."));
+    });
+  }
+  async function videoPoster(file) {
+    const url = URL.createObjectURL(file);
+    try {
+      const v = await loadVideo(url);
+      const dur = isFinite(v.duration) ? v.duration : 0;
+      await new Promise((r) => { v.onseeked = r; v.currentTime = Math.min(1, dur / 3 || 0); setTimeout(r, 2500); });
+      const sc = Math.min(1, 480 / Math.max(v.videoWidth, v.videoHeight));
+      const cv = document.createElement("canvas"); cv.width = Math.round(v.videoWidth * sc) || 480; cv.height = Math.round(v.videoHeight * sc) || 270;
+      cv.getContext("2d").drawImage(v, 0, 0, cv.width, cv.height);
+      const blob = await new Promise((r) => cv.toBlob(r, "image/jpeg", 0.75));
+      return { bytes: new Uint8Array(await blob.arrayBuffer()), w: v.videoWidth || cv.width, h: v.videoHeight || cv.height, dur };
+    } finally { URL.revokeObjectURL(url); }
+  }
+  // Zu große Videos im Browser auf 720p verkleinern (dauert so lange wie das Video)
+  async function compressVideo(file, onProgress) {
+    if (!window.MediaRecorder || !HTMLCanvasElement.prototype.captureStream) throw new Error("Verkleinern wird von diesem Browser nicht unterstützt.");
+    const url = URL.createObjectURL(file);
+    try {
+      const v = await loadVideo(url); v.muted = false; v.volume = 0;
+      const sc = Math.min(1, 1280 / Math.max(v.videoWidth, v.videoHeight));
+      const cv = document.createElement("canvas"); cv.width = Math.round(v.videoWidth * sc / 2) * 2; cv.height = Math.round(v.videoHeight * sc / 2) * 2;
+      const ctx = cv.getContext("2d");
+      const stream = cv.captureStream(30);
+      try { const vs = v.captureStream ? v.captureStream() : v.mozCaptureStream && v.mozCaptureStream(); vs && vs.getAudioTracks().forEach((tr) => stream.addTrack(tr)); } catch { /* ohne Ton */ }
+      const mime = ["video/mp4;codecs=avc1", "video/mp4", "video/webm;codecs=vp9,opus", "video/webm"].find((m) => MediaRecorder.isTypeSupported(m)) || "";
+      const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 2500000, audioBitsPerSecond: 96000 });
+      const chunks = []; rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+      const done = new Promise((r) => (rec.onstop = r));
+      let raf; const drawF = () => { ctx.drawImage(v, 0, 0, cv.width, cv.height); onProgress && onProgress(v.currentTime / (v.duration || 1)); raf = requestAnimationFrame(drawF); };
+      rec.start(1000); await v.play(); drawF();
+      await new Promise((r) => (v.onended = r));
+      cancelAnimationFrame(raf); rec.stop(); await done;
+      const type = (mime || "video/webm").split(";")[0];
+      return { bytes: new Uint8Array(await new Blob(chunks, { type }).arrayBuffer()), mime: type };
+    } finally { URL.revokeObjectURL(url); }
+  }
+
   async function addPhotos(t, files, ort) {
-    const imgs = [...files].filter((f) => f.type.startsWith("image/") || /\.(jpe?g|png|webp|heic)$/i.test(f.name));
-    if (!imgs.length) return toast("Keine Bilder gefunden.");
+    const media = [...files].filter((f) => f.type.startsWith("image/") || isVideoFile(f) || /\.(jpe?g|png|webp|heic)$/i.test(f.name));
+    if (!media.length) return toast("Keine Fotos oder Videos gefunden.");
     let ok = 0;
-    for (const f of imgs) {
+    for (const f of media) {
       try {
-        toast(`Verkleinere & verschlüssele Foto ${ok + 1} von ${imgs.length} …`);
-        const full = await resize(f, 2048, 0.82), th = await resize(f, 480, 0.72);
         const id = uid() + uid();
-        await U.putBlob(t, id, full.bytes); await U.putBlob(t, id + "_t", th.bytes);
-        t.fotos ||= [];
-        t.fotos.push({ id, ort: ort || "", name: f.name, w: full.w, h: full.h, size: full.bytes.length, von: C.myId(t) || "", am: new Date(f.lastModified || Date.now()).toISOString() });
+        const meta = { id, ort: ort || "", name: f.name, von: C.myId(t) || "", am: new Date(f.lastModified || Date.now()).toISOString() };
+        if (isVideoFile(f)) {
+          toast(`Bereite Video ${ok + 1} von ${media.length} vor …`);
+          const poster = await videoPoster(f);
+          let bytes = new Uint8Array(await f.arrayBuffer()), mime = f.type || "video/mp4";
+          if (bytes.length > VIDEO_MAX) {
+            toast(`„${f.name}“ ist ${(bytes.length / 1048576).toFixed(0)} MB – wird auf 720p verkleinert (dauert etwa ${Math.ceil(poster.dur / 60) || 1} min, Seite offen lassen) …`);
+            const c = await compressVideo(f, (p) => { const el = $("#toast"); if (el) el.textContent = `Verkleinere „${f.name}“ … ${Math.round(p * 100)} %`; });
+            bytes = c.bytes; mime = c.mime;
+            if (bytes.length > VIDEO_MAX) throw new Error(`„${f.name}“ ist auch verkleinert noch zu groß (max. 50 MB) – bitte kürzen.`);
+          }
+          toast(`Verschlüssele & lade Video hoch (${(bytes.length / 1048576).toFixed(1)} MB) …`);
+          await U.putBlob(t, id, bytes); await U.putBlob(t, id + "_t", poster.bytes);
+          Object.assign(meta, { typ: "video", mime, w: poster.w, h: poster.h, dauer: Math.round(poster.dur), size: bytes.length });
+        } else {
+          toast(`Verkleinere & verschlüssele Foto ${ok + 1} von ${media.length} …`);
+          const full = await resize(f, 2048, 0.82), th = await resize(f, 480, 0.72);
+          await U.putBlob(t, id, full.bytes); await U.putBlob(t, id + "_t", th.bytes);
+          Object.assign(meta, { w: full.w, h: full.h, size: full.bytes.length });
+        }
+        t.fotos ||= []; t.fotos.push(meta);
         ok++;
-      } catch (e) { console.warn(e); toast(`„${f.name}“ konnte nicht gelesen werden (HEIC bitte als JPG exportieren).`); }
+      } catch (e) { console.warn(e); toast(e.message && e.message.startsWith("„") ? e.message : `„${f.name}“ konnte nicht gelesen werden${isVideoFile(f) ? "" : " (HEIC bitte als JPG exportieren)"}.`); }
     }
-    C.commit(); if (ok) toast(`${ok} ${ok === 1 ? "Foto" : "Fotos"} hinzugefügt.`);
+    C.commit(); if (ok) toast(`${ok} ${ok === 1 ? "Datei" : "Dateien"} hinzugefügt.`);
     if (U.isShared(t.id)) U.syncAll({ only: t.id });
   }
   // zufällige, aber pro Sitzung stabile Auswahl (damit nichts bei jedem Neuzeichnen springt)
@@ -242,11 +305,12 @@
   }
   const coverOf = (t) => (t.cover && (t.fotos || []).find((f) => f.id === t.cover)) || null;
   const urlCache = {};
-  async function photoUrl(t, fid) {
+  async function photoUrl(t, fid, type = "image/jpeg") {
     if (urlCache[fid]) return urlCache[fid];
     const bytes = await U.getBlob(t, fid);
-    return (urlCache[fid] = URL.createObjectURL(new Blob([bytes], { type: "image/jpeg" })));
+    return (urlCache[fid] = URL.createObjectURL(new Blob([bytes], { type })));
   }
+  const fmtDauer = (s) => (s ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}` : "");
   function hydrateThumbs(root, t) {
     $$("img[data-thumb]", root).forEach(async (img) => {
       const tt = img.dataset.trip ? state.trips[img.dataset.trip] : t; if (!tt) return;
@@ -286,7 +350,7 @@
     const show = async () => {
       const f = list[idx]; if (!f) return closeViewer();
       el.innerHTML = `<div class="pv-top"><span class="pv-count">${idx + 1} / ${list.length}</span><span class="pv-title">${esc(ortName(f.ort))}</span><button class="pv-btn" data-pv="close" aria-label="Schließen">${I.x}</button></div>
-        <div class="pv-stage"><img class="pv-img" alt="${esc(f.name)}"></div>
+        <div class="pv-stage">${isVideo(f) ? `<video class="pv-img" controls playsinline preload="metadata"></video><span class="pv-loading">Video wird geladen …</span>` : `<img class="pv-img" alt="${esc(f.name)}">`}</div>
         ${idx > 0 ? `<button class="pv-nav prev" data-pv="prev" aria-label="Vorheriges Foto">‹</button>` : ""}
         ${idx < list.length - 1 ? `<button class="pv-nav next" data-pv="next" aria-label="Nächstes Foto">›</button>` : ""}
         <div class="pv-bar">
@@ -294,15 +358,23 @@
           <label class="pv-ort">Etappe <select data-pv-ort><option value="">Reise allgemein</option>${(t.orte || []).map((o, i) => `<option value="${o.id}" ${o.id === f.ort ? "selected" : ""}>${i + 1}. ${esc(o.name)}</option>`).join("")}</select></label>
           <span class="pv-actions">
             <button class="pv-btn ${t.cover === f.id ? "on" : ""}" data-pv="cover" title="Als Profilbild der Reise">${I.star}<span>Profilbild</span></button>
-            <a class="pv-btn" data-pv-dl download="${esc((f.name || "foto").replace(/\.\w+$/, ""))}.jpg" title="Herunterladen">${I.dl}</a>
+            <a class="pv-btn" data-pv-dl download="${esc((f.name || "foto").replace(/\.\w+$/, ""))}.${isVideo(f) ? ((f.mime || "").includes("webm") ? "webm" : (f.mime || "").includes("quicktime") ? "mov" : "mp4") : "jpg"}" title="Herunterladen">${I.dl}</a>
             <button class="pv-btn" data-pv="del" title="Löschen">${U.ICONS.trash}</button>
           </span>
         </div>`;
       const img = $(".pv-img", el);
-      try { img.src = await photoUrl(t, f.id + "_t"); const full = await photoUrl(t, f.id); if (viewer && list[idx] === f) { img.src = full; const dl = $("[data-pv-dl]", el); if (dl) dl.href = full; } }
-      catch (e) { toast(e.message); }
-      // nächstes Bild vorladen
-      if (list[idx + 1]) photoUrl(t, list[idx + 1].id).catch(() => {});
+      try {
+        if (isVideo(f)) {
+          img.poster = await photoUrl(t, f.id + "_t");
+          const full = await photoUrl(t, f.id, f.mime || "video/mp4");
+          if (viewer && list[idx] === f) { img.src = full; const l = $(".pv-loading", el); if (l) l.remove(); const dl = $("[data-pv-dl]", el); if (dl) dl.href = full; }
+        } else {
+          img.src = await photoUrl(t, f.id + "_t"); const full = await photoUrl(t, f.id);
+          if (viewer && list[idx] === f) { img.src = full; const dl = $("[data-pv-dl]", el); if (dl) dl.href = full; }
+        }
+      } catch (e) { toast(e.message); }
+      // nächstes Bild vorladen (Videos erst bei Bedarf)
+      if (list[idx + 1] && !isVideo(list[idx + 1])) photoUrl(t, list[idx + 1].id).catch(() => {});
     };
     const go = (d) => { const n = idx + d; if (n < 0 || n >= list.length) return; idx = n; show(); };
     viewer.go = go;
@@ -326,7 +398,7 @@
     el.addEventListener("change", (e) => { if (e.target.matches("[data-pv-ort]")) { list[idx].ort = e.target.value; C.commit(); toast("Etappe zugeordnet."); show(); } });
     // Wischen
     let sx = null, sy = 0;
-    el.addEventListener("pointerdown", (e) => { if (e.target.closest(".pv-bar, .pv-top, .pv-nav")) return; sx = e.clientX; sy = e.clientY; });
+    el.addEventListener("pointerdown", (e) => { if (e.target.closest(".pv-bar, .pv-top, .pv-nav, video")) return; sx = e.clientX; sy = e.clientY; });
     el.addEventListener("pointerup", (e) => { if (sx == null) return; const dx = e.clientX - sx, dy = e.clientY - sy; sx = null; if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) go(dx < 0 ? 1 : -1); else if (dy > 90) closeViewer(); });
     show();
   }
@@ -387,7 +459,7 @@
         // geöffnete Reise: bis zu 3 Fotos der Etappe neben dem Punkt
         if (focus && state.ui.mapPhotos !== false && nf) {
           const ph = pick("ort:" + o.id, (t.fotos || []).filter((f) => f.ort === o.id), 3);
-          const html = `<div class="map-ph">${ph.map((f, k) => `<button data-mapph="${t.id}:${o.id}:${f.id}" style="--k:${k}"><img data-thumb="${f.id}" data-trip="${t.id}" alt=""></button>`).join("")}${nf > 3 ? `<span class="more">+${nf - 3}</span>` : ""}</div>`;
+          const html = `<div class="map-ph">${ph.map((f, k) => `<button data-mapph="${t.id}:${o.id}:${f.id}" class="${isVideo(f) ? "is-video" : ""}" style="--k:${k}"><img data-thumb="${f.id}" data-trip="${t.id}" alt=""></button>`).join("")}${nf > 3 ? `<span class="more">+${nf - 3}</span>` : ""}</div>`;
           const pm = L.marker([o.lat, o.lon], { icon: L.divIcon({ className: "map-ph-icon", html, iconSize: [0, 0], iconAnchor: [-16, 30] }), zIndexOffset: -100, keyboard: false }).addTo(layer);
           const elx = pm.getElement(); if (elx) hydrateThumbs(elx, t);
         }
@@ -477,7 +549,7 @@
   }
   function detailHtml(t) {
     const tab = state.ui.mapDetail || "ueberblick";
-    const tabs = [["ueberblick", "Überblick"], ["route", "Route"], ["fotos", `Fotos (${(t.fotos || []).length})`], ["review", "Review"]];
+    const tabs = [["ueberblick", "Überblick"], ["route", "Route"], ["fotos", `Fotos & Videos (${(t.fotos || []).length})`], ["review", "Review"]];
     return `<div class="side-head">
         <button class="btn sm ghost" data-mback>${I.back} Alle Reisen</button>
         <h2><span class="dot-c" style="background:${colorOf(t)}"></span>${coverOf(t) ? `<span class="tl-cover big"><img data-thumb="${coverOf(t).id}" alt=""></span>` : ""}${esc(tripName(t))}</h2>
@@ -531,7 +603,7 @@
       </div>
       <p class="hint" style="margin-top:.5rem">Tipp: In Outdooractive die Tour öffnen → „GPX herunterladen“. Dieselbe Datei kannst du auf deine Suunto übertragen und hier hochladen.</p>`;
   }
-  const tile = (f) => `<button class="jg-tile" data-photo="${f.id}" data-ar="${f.w && f.h ? (f.w / f.h).toFixed(3) : 1.5}" title="${esc(f.name || "")}"><img data-thumb="${f.id}" alt="${esc(f.name || "")}" loading="lazy"></button>`;
+  const tile = (f) => `<button class="jg-tile ${isVideo(f) ? "is-video" : ""}" data-photo="${f.id}" data-ar="${f.w && f.h ? (f.w / f.h).toFixed(3) : 1.5}" title="${esc(f.name || "")}"><img data-thumb="${f.id}" alt="${esc(f.name || "")}" loading="lazy">${isVideo(f) ? `<span class="vid-badge">▶ ${fmtDauer(f.dauer)}</span>` : ""}</button>`;
   function fotoList(t) {
     const flt = state.ui.fotoFilter || "alle";
     return (t.fotos || []).filter((f) => flt === "alle" || (flt === "_" ? !f.ort : f.ort === flt)).sort((a, b) => (a.am || "").localeCompare(b.am || ""));
@@ -547,9 +619,9 @@
       : [[null, fotoList(t)]];
     return `${U.whoAmI(t)}
       <div class="foto-tools" data-fdrop>
-        <label class="btn sm primary">${I.photo} Fotos hinzufügen<input type="file" accept="image/*" multiple data-fupload hidden></label>
+        <label class="btn sm primary">${I.photo} Fotos & Videos<input type="file" accept="image/*,video/*" multiple data-fupload hidden></label>
         <select class="input" data-fort><option value="">zu: Reise allgemein</option>${orte.map((o, i) => `<option value="${o.id}" ${flt === o.id ? "selected" : ""}>zu: ${i + 1}. ${esc(o.name)}</option>`).join("")}</select>
-        <span class="small muted">oder hierher ziehen · Zuordnung später im Foto änderbar</span>
+        <span class="small muted">oder hierher ziehen · Videos bis 50 MB (größere werden auf 720p verkleinert) · Zuordnung später änderbar</span>
       </div>
       ${all.length ? `<div class="foto-filter">${[["alle", `Alle (${all.length})`], ...orte.filter((o) => count(o.id)).map((o) => [o.id, `${o.name} (${count(o.id)})`]), ...(count("_") ? [["_", `Allgemein (${count("_")})`]] : [])]
         .map(([k, l]) => `<button class="chip chip-s ${flt === k ? "on" : ""}" data-ffilter="${k}">${esc(l)}</button>`).join("")}</div>` : ""}
