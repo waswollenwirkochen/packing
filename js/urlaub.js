@@ -79,7 +79,7 @@
   // =========================================================
   //  SYNCHRONISIERUNG
   // =========================================================
-  const sync = { status: "off", msg: "", at: null, queue: Promise.resolve(), timer: null, locked: new Set() };
+  const sync = { status: "off", msg: "", at: null, queue: Promise.resolve(), timer: null, locked: new Set(), broken: new Set() };
   const online = () => navigator.onLine !== false;
   function cfgFor(id) {
     const k = state.keys[id]; if (!k) return null;
@@ -158,7 +158,9 @@
       if ((ring.deleted || []).includes(id) || state.deleted.includes(id)) return;
       if (!state.keys[id]) state.keys[id] = { k: e.k, owner: true };
     });
-    (ring.contacts || []).forEach((c) => { if (!state.contacts.some((x) => x.id === c.id)) state.contacts.push(c); });
+    cfg.contactsGone = [...new Set([...(cfg.contactsGone || []), ...(ring.contactsGone || [])])];
+    state.contacts = state.contacts.filter((c) => !cfg.contactsGone.includes(c.id));
+    (ring.contacts || []).forEach((c) => { if (!cfg.contactsGone.includes(c.id) && !state.contacts.some((x) => x.id === c.id)) state.contacts.push(c); });
     if (ring.profile && ring.profile.name && !state.profile.name) state.profile.name = ring.profile.name;
     (ring.deleted || []).forEach((id) => {
       if (state.keys[id] && state.keys[id].owner) { delete state.trips[id]; delete state.keys[id]; delete state.base[id]; }
@@ -176,7 +178,7 @@
       if (state.trips[id]) trips[id] = { k: k.k };
       else if (!trips[id]) trips[id] = { k: k.k };
     });
-    const ring = { v: 1, trips, deleted, contacts: state.contacts, profile: { name: state.profile.name || "" } };
+    const ring = { v: 1, trips, deleted, contacts: state.contacts, contactsGone: cfg.contactsGone || [], profile: { name: state.profile.name || "" } };
     if (cfg.ringCache && S.eq(cfg.ringCache, ring)) return;
     const content = btoa(JSON.stringify({ v: 1, salt: cfg.salt, data: await S.encJSON(cfg.mk, ring) }));
     try {
@@ -193,6 +195,11 @@
   // Pro Verbindung gibt es ein Postfach inbox/<id>.enc, verschlüsselt mit einem gemeinsamen Schlüssel.
   // Darin: alle Urlaube, an denen beide beteiligt sind (Urlaub-id → Schlüssel). Beide Seiten lesen und ergänzen es.
   const norm = (x) => C.normName(x);
+  function dropContacts(pred) {
+    const gone = state.contacts.filter(pred).map((c) => c.id);
+    if (state.syncCfg) state.syncCfg.contactsGone = [...new Set([...(state.syncCfg.contactsGone || []), ...gone])];
+    state.contacts = state.contacts.filter((c) => !gone.includes(c.id));
+  }
   const tripHas = (t, name) => !!name && (t.personen || []).some((p) => norm(p.name) === norm(name));
   const contactsOf = (t) => state.contacts.filter((c) => tripHas(t, c.name));
   function autoMe(t) {
@@ -205,7 +212,11 @@
     const cfg = state.syncCfg; cfg.inbox ||= {};
     const f = await S.getFile(cfg, `inbox/${c.id}.enc`);
     let trips = {};
-    if (f) { try { trips = (await S.decJSON(c.k, f.content)).trips || {}; } catch { throw new Error(`Verbindung mit ${c.name}: Schlüssel passt nicht.`); } }
+    if (f) {
+      try { trips = (await S.decJSON(c.k, f.content)).trips || {}; }
+      catch { sync.broken.add(c.id); cfg.inbox[c.id] = null; return null; }
+    }
+    sync.broken.delete(c.id);
     cfg.inbox[c.id] = { sha: f ? f.sha : null, trips };
     return cfg.inbox[c.id];
   }
@@ -213,6 +224,7 @@
     const cfg = state.syncCfg; cfg.altKeys ||= {};
     for (const c of state.contacts) {
       const box = await readInbox(c);
+      if (!box) continue;
       Object.entries(box.trips).forEach(([id, k]) => {
         if (isRemoved(id)) return;
         if (!state.keys[id]) state.keys[id] = { k, owner: true };
@@ -224,7 +236,9 @@
     const cfg = state.syncCfg; cfg.inbox ||= {};
     for (const c of state.contacts) {
       for (let attempt = 0; attempt < 2; attempt++) {
+        if (sync.broken.has(c.id)) break;
         const box = cfg.inbox[c.id] || await readInbox(c);
+        if (!box) break;
         const want = { ...box.trips };
         Object.values(state.trips).forEach((t) => { if (tripHas(t, c.name) && state.keys[t.id] && !isRemoved(t.id) && !want[t.id]) want[t.id] = state.keys[t.id].k; });
         if (box.sha && S.eq(want, box.trips)) break;
@@ -340,6 +354,7 @@
         if (state.syncCfg) await pushInboxes();
         if (state.syncCfg) await pushKeyring();
         C.store.save();
+        state.contacts.filter((c) => sync.broken.has(c.id)).forEach((c) => errs.push(`Die Verbindung mit ${c.name} passt nicht mehr – bitte ${c.name} um einen neuen Verbindungs-Link bitten (bzw. unter Einstellungen → Mitreisende einen neuen erzeugen).`));
         if (errs.length) setStatus("error", errs.join(" · "));
         else setStatus("ok");
         if (JSON.stringify(state.trips) !== before) C.render();
@@ -1111,8 +1126,17 @@
       body: `<p>Schick ${esc(c.name)} diesen Link. Damit bekommt ${esc(c.name)} ${n === 1 ? "eure gemeinsame Reise" : `alle ${n} gemeinsamen Reisen`} und kann die App danach auch für eigene Urlaube nutzen. Neue Urlaube, in denen „${esc(c.name)}“ steht, erscheinen automatisch bei ${esc(c.name)}.</p>
         <label class="field">Verbindungs-Link<textarea class="export-text" style="min-height:110px" readonly>${esc(link)}</textarea></label>
         <div class="hint" style="margin-top:.6rem;line-height:1.5"><b>Wichtig:</b> Der Link ist ein Schlüssel – nur direkt verschicken (z. B. Signal, WhatsApp). ${esc(c.name)} wählt beim Öffnen ein eigenes Passwort. Eure Reisen liegen verschlüsselt in deinem Daten-Repo; was ${esc(c.name)} alleine plant, kannst du nicht lesen.</div>`,
-      foot: `<button class="btn" data-close>Schließen</button><button class="btn primary" data-copy>Link kopieren</button>`,
-      onMount: (m) => $("[data-copy]", m).addEventListener("click", () => C.copyText(link, "Link kopiert."))
+      foot: `<button class="btn" data-rekey title="Falls der Link nicht funktioniert: neue Verbindung mit neuem Schlüssel">Neuen Link erzeugen</button><button class="btn" data-close>Schließen</button><button class="btn primary" data-copy>Link kopieren</button>`,
+      onMount: (m) => {
+        $("[data-copy]", m).addEventListener("click", () => C.copyText(link, "Link kopiert."));
+        $("[data-rekey]", m).addEventListener("click", (e) => {
+          if (!armed(e.currentTarget, "Alter Link wird ungültig – nochmal tippen")) return;
+          const n2 = { id: uid() + uid(), name: c.name, k: S.randomKey() };
+          dropContacts((x) => x.id === c.id); state.contacts.push(n2); C.store.save();
+          closeModal(); toast("Neuer Link wird vorbereitet …");
+          syncAll().then(() => { C.render(); showConnectLink(n2); });
+        });
+      }
     });
   }
   function onPeopleClick(a) {
@@ -1133,9 +1157,19 @@
     try { inv = dec64(code); if (!inv.c || !inv.k || !inv.o) throw new Error(); } catch { toast("Der Verbindungs-Link ist ungültig."); return; }
     const ring = `keys/c_${inv.c}.enc`;
     if (state.syncCfg) {
-      if (state.syncCfg.ring === ring) { toast("Dieses Gerät ist schon verbunden."); return; }
-      if (state.contacts.some((c) => c.id === inv.c)) { toast(`Das ist der Link, den du an ${inv.n} geschickt hast.`); return; }
-      return openModal({ title: "Schon angemeldet", body: `<p>Auf diesem Gerät ist bereits ein anderes Konto verbunden. Öffne den Link auf dem Gerät von ${esc(inv.n)}.</p>`, foot: `<button class="btn primary" data-close>OK</button>` });
+      const mine = state.contacts.find((c) => c.id === inv.c);
+      if (mine && !state.syncCfg.ring) { toast(`Das ist der Link, den du an ${inv.n} geschickt hast.`); return; }
+      if (state.syncCfg.o !== inv.o || state.syncCfg.r !== inv.r) {
+        return openModal({ title: "Anderes Daten-Repo", body: `<p>Dieses Gerät ist mit einem anderen Daten-Repo verbunden. Melde dich unter Einstellungen zuerst ab, um den Link von ${esc(inv.f || "deiner Mitreise")} zu nutzen.</p>`, foot: `<button class="btn primary" data-close>OK</button>` });
+      }
+      // gleiches Repo: Verbindung hinzufügen bzw. erneuern (ersetzt eine alte Verbindung mit derselben Person)
+      const name = C.niceName(inv.f || "Mitreisende Person");
+      dropContacts((c) => c.id !== inv.c && norm(c.name) === norm(name)); state.contacts = state.contacts.filter((c) => c.id !== inv.c);
+      state.contacts.push({ id: inv.c, name, k: inv.k });
+      sync.broken.clear(); C.store.save();
+      toast(`Verbindung mit ${name} erneuert – lade gemeinsame Reisen …`);
+      syncAll().then(() => { location.hash = "urlaube"; C.render(); });
+      return;
     }
     const cfg = { o: inv.o, r: inv.r, t: inv.t, ring, invite: code };
     openModal({
