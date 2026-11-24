@@ -123,7 +123,7 @@
     base.items.forEach((b, idx) => {
       const o = own.items.find((x) => x.id === b.id);
       if (o) ["touren", "gruppeJe", "nichtBei", "nurBei"].forEach((k) => { if (b[k] && o[k] == null) o[k] = clone(b[k]); });
-      else if (["w-hose-lang", "w-leggins-drunter", "huettenbargeld", "reisekissen-huette"].includes(b.id)) {
+      else if (["w-hose-lang", "w-leggins-drunter", "huettenbargeld", "reisekissen-huette", "tagesrucksack", "brotdose", "tagesproviant"].includes(b.id)) {
         const prev = base.items[idx - 1]; const at = prev ? own.items.findIndex((x) => x.id === prev.id) : -1;
         own.items.splice(at + 1, 0, clone(b));
       }
@@ -275,13 +275,16 @@
   const bringers = (t, item) => tagsOf(t, item).filter((x) => x !== "gemeinsam");
   const isShared = (t, item) => tagsOf(t, item).includes("gemeinsam");
 
-  // Wanderurlaub als Zelt- oder Hüttentour
-  const tourOf = (t) => (t.arten.includes("wandern") ? (t.tour || "zelt") : null);
+  // Wanderurlaub als Zelttour, Hüttentour und/oder Tagestrips (Mehrfachauswahl)
+  const TOUREN = [["zelt", "Zelttour"], ["huette", "Hüttentour"], ["tag", "Tagestrips"]];
+  const tourName = (x) => (TOUREN.find((y) => y[0] === x) || [x, x])[1];
+  const toursOf = (t) => (t.arten.includes("wandern") ? (t.touren && t.touren.length ? t.touren : [t.tour || "zelt"]) : []);
+  const tourSeg = (t) => `<div class="seg" role="group" aria-label="Tourart (mehrere möglich)">${TOUREN.map(([id, n]) => `<button data-act="set-tour" data-id="${id}" class="${toursOf(t).includes(id) ? "on" : ""}" aria-pressed="${toursOf(t).includes(id)}">${n}</button>`).join("")}</div>`;
   // Warum ist ein Item (nicht) in dieser Reise? null = ist dabei
   function whyNot(t, it, per = t.arten.length > 1 ? daysPer(t) : null) {
     const P = PACK();
     if (it.arten && it.arten.length && !it.arten.some((a) => t.arten.includes(a) && (!per || per[a] > 0))) return "nur bei " + it.arten.map((a) => P.arten.find((x) => x.id === a)?.name || a).join(", ");
-    if (it.touren && it.touren.length && !it.touren.includes(tourOf(t))) return "nur bei " + it.touren.map((x) => (x === "huette" ? "Hüttentour" : "Zelttour")).join(", ");
+    if (it.touren && it.touren.length && !it.touren.some((x) => toursOf(t).includes(x))) return "nur bei " + it.touren.map(tourName).join(", ");
     if (!t.module.includes(modOf(t, it))) return "Modul „" + (P.module.find((m) => m.id === modOf(t, it))?.name || modOf(t, it)) + "“ ist aus";
     const modName = (id) => P.module.find((m) => m.id === id)?.name || id;
     if ((it.nichtBei || []).some((m) => t.module.includes(m))) return "nicht bei " + it.nichtBei.map(modName).join(", ");
@@ -296,13 +299,17 @@
   // Items lassen sich je Reise verschieben: t.lage[id] = { m: Modul, g: Unterüberschrift, o: Reihenfolge }
   const lageOf = (t, it) => (t.lage && t.lage[it.id]) || null;
   const modOf = (t, it) => (lageOf(t, it) && lageOf(t, it).m) || it.modul;
-  const grpOf = (t, it) => { const l = lageOf(t, it); if (l && l.g != null) return l.g || null; return (it.gruppeJe && it.gruppeJe[tourOf(t)]) || it.gruppe; };
+  const grpOf = (t, it) => { const l = lageOf(t, it); if (l && l.g != null) return l.g || null; if (!it.gruppeJe || toursOf(t).includes("zelt")) return it.gruppe; const k = toursOf(t).find((x) => it.gruppeJe[x]); return (k && it.gruppeJe[k]) || it.gruppe; };
   const ordOf = (t, it) => { const l = lageOf(t, it); return l && l.o != null ? l.o : PACK().items.indexOf(it); };
+  // Tourart an/aus (mind. eine bleibt an); Schlaf- und Kochmodule folgen der Auswahl
   function setTour(t, tour) {
-    t.tour = tour;
-    const add = tour === "huette" ? ["schlafen-huette"] : ["schlafen-zelt", "kochen"];
-    const drop = tour === "huette" ? ["schlafen-zelt", "kochen"] : ["schlafen-huette"];
-    t.module = PACK().module.map((m) => m.id).filter((id) => (t.module.includes(id) || add.includes(id)) && !drop.includes(id));
+    let cur = [...toursOf(t)];
+    if (cur.includes(tour)) { if (cur.length === 1) return false; cur = cur.filter((x) => x !== tour); }
+    else cur.push(tour);
+    t.touren = TOUREN.map((x) => x[0]).filter((x) => cur.includes(x)); t.tour = t.touren[0]; // t.tour für ältere App-Versionen
+    const want = { "schlafen-zelt": cur.includes("zelt"), kochen: cur.includes("zelt"), "schlafen-huette": cur.includes("huette") };
+    t.module = PACK().module.map((m) => m.id).filter((id) => (id in want ? want[id] : t.module.includes(id)));
+    return true;
   }
   function visibleItems(t) {
     let items = tripItems(t);
@@ -424,8 +431,7 @@
             ${P.arten.map((a) => `<button class="chip ${t.arten.includes(a.id) ? "on" : ""}" data-act="toggle-art" data-id="${a.id}" aria-pressed="${t.arten.includes(a.id)}">${esc(a.name)}</button>`).join("")}
           </div>
         </div>
-        ${t.arten.includes("wandern") ? `<div class="field m-tour"><span>Wanderurlaub als</span><div class="seg" role="group" aria-label="Tourart">
-            <button data-act="set-tour" data-id="zelt" class="${tourOf(t) === "zelt" ? "on" : ""}">Zelttour</button><button data-act="set-tour" data-id="huette" class="${tourOf(t) === "huette" ? "on" : ""}">Hüttentour</button></div></div>` : ""}
+        ${t.arten.includes("wandern") ? `<div class="field m-tour"><span>Wanderurlaub als</span>${tourSeg(t)}</div>` : ""}
         <div class="field m-date">Reisezeitraum
           <div class="date-row">
             <input class="input" data-bind="von" value="${toDE(t.von)}" placeholder="TT.MM.JJJJ" inputmode="numeric" aria-label="Von">
@@ -511,8 +517,7 @@
             ${P.arten.map((a) => `<button class="chip ${t.arten.includes(a.id) ? "on" : ""}" data-act="toggle-art" data-id="${a.id}" aria-pressed="${t.arten.includes(a.id)}">${esc(a.name)}</button>`).join("")}
           </div>
         </div>
-        ${t.arten.includes("wandern") ? `<div class="field"><span>Wanderurlaub als</span><div class="seg" role="group" aria-label="Tourart">
-            <button data-act="set-tour" data-id="zelt" class="${tourOf(t) === "zelt" ? "on" : ""}">Zelttour</button><button data-act="set-tour" data-id="huette" class="${tourOf(t) === "huette" ? "on" : ""}">Hüttentour</button></div></div>` : ""}
+        ${t.arten.includes("wandern") ? `<div class="field"><span>Wanderurlaub als</span>${tourSeg(t)}</div>` : ""}
         <button class="btn sm no-print" data-act="open-meta" style="align-self:flex-start">${ICON.edit} Zeitraum &amp; Teilnehmende bearbeiten</button>
         ${multi ? `<label class="field no-print">Ich bin
           <select class="input" data-act="set-me"><option value="">– bitte wählen –</option>${t.personen.map((p) => `<option value="${p.id}" ${p.id === myId(t) ? "selected" : ""}>${esc(pname(t, p))}</option>`).join("")}</select></label>` : ""}
@@ -749,7 +754,12 @@
         break;
       case "brush": brush = id; break;
       case "open-meta": state.ui.metaOpen = true; location.hash = "plan"; return;
-      case "set-tour": setTour(t, id); toast(id === "huette" ? "Hüttentour: Hüttenschlafsack statt Zelt, Wander- und Freizeitoutfit." : "Zelttour: Zelt, Kochen, Camp- und Schlafoutfit."); break;
+      case "set-tour": {
+        const was = toursOf(t).includes(id);
+        if (!setTour(t, id)) { toast("Mindestens eine Tourart bleibt ausgewählt."); break; }
+        toast(was ? `${tourName(id)} entfernt.` : id === "huette" ? "Hüttentour dazu: Hüttenschlafsack, Wander- und Freizeitoutfit." : id === "tag" ? "Tagestrips dazu: Tagesrucksack, Brotdose – ohne Kochen und Schlafsachen, falls nur Tagestrips." : "Zelttour dazu: Zelt, Kochen, Camp- und Schlafoutfit.");
+        break;
+      }
       case "toggle-mod": t.module = t.module.includes(id) ? t.module.filter((m) => m !== id) : [...t.module, id]; break;
       case "group": state.ui.groupBy = id; break;
       case "new-trip": return window.PL.openNewUrlaub ? window.PL.openNewUrlaub() : null;

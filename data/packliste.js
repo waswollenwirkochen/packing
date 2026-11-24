@@ -24,13 +24,14 @@
     arten     ["wandern"] oder ["stadt"] = nur bei dieser Reiseart (leer = bei allen)
               Reisearten lassen sich in einem Trip kombinieren (Kombi-Urlaub).
     gewicht   Gramm pro Stück (optional, für die Gewichtssumme)
-    touren    ["zelt"] oder ["huette"] = nur bei dieser Art von Wanderurlaub
+    touren    ["zelt"], ["huette"], ["tag"] = nur bei dieser Art von Wanderurlaub (Tag = Tagestrips;
+              mehrere Arten lassen sich kombinieren, das Item ist dabei, wenn eine davon passt)
     gruppeJe  andere Unterüberschrift je Tourart, z. B. { huette: "Freizeitoutfit" }
     nichtBei  ["kaelte"] = ausblenden, wenn das Modul aktiv ist (z. B. kurze Hose bei Kälte)
     nurBei    ["kaelte"] = nur zeigen, wenn das Modul aktiv ist
 */
 window.PACK_DATA = {
-  version: 3,
+  version: 4,
 
   phasen: [
     { id: "besorgen", name: "Vorher besorgen", info: "Einkaufen, nachfüllen, ausleihen" },
@@ -137,9 +138,9 @@ window.PACK_DATA = {
     { id: "w-leggins-drunter", name: "Merino-Leggins (drunter)", modul: "kleidung", gruppe: "Wanderoutfit", phase: "packen", arten: ["wandern"], nurBei: ["kaelte"], touren: ["huette"] },
     { id: "w-socken-lang", name: "Wandersocken, lang", modul: "kleidung", gruppe: "Wanderoutfit", einheit: "Paar", menge: { basis: 2, proTag: 0.34, max: 4 }, phase: "packen", arten: ["wandern"] },
     { id: "w-fleece-duenn", name: "Fleece, dünn", modul: "kleidung", gruppe: "Wanderoutfit", phase: "packen", optional: true, arten: ["wandern"], notiz: "für kühle Etappen" },
-    { id: "w-fleece-dick", name: "Fleece, dick", modul: "kleidung", gruppe: "Campoutfit", phase: "packen", arten: ["wandern"], gruppeJe: { huette: "Freizeitoutfit" } },
-    { id: "w-ls-merino-duenn", name: "Merino-Langarm, dünn", modul: "kleidung", gruppe: "Campoutfit", phase: "packen", arten: ["wandern"], gruppeJe: { huette: "Freizeitoutfit" } },
-    { id: "w-ziphose", name: "Zip-Hose", modul: "kleidung", gruppe: "Campoutfit", phase: "packen", arten: ["wandern"], gruppeJe: { huette: "Freizeitoutfit" } },
+    { id: "w-fleece-dick", name: "Fleece, dick", modul: "kleidung", gruppe: "Campoutfit", phase: "packen", arten: ["wandern"], gruppeJe: { huette: "Freizeitoutfit" }, touren: ["zelt", "huette"] },
+    { id: "w-ls-merino-duenn", name: "Merino-Langarm, dünn", modul: "kleidung", gruppe: "Campoutfit", phase: "packen", arten: ["wandern"], gruppeJe: { huette: "Freizeitoutfit" }, touren: ["zelt", "huette"] },
+    { id: "w-ziphose", name: "Zip-Hose", modul: "kleidung", gruppe: "Campoutfit", phase: "packen", arten: ["wandern"], gruppeJe: { huette: "Freizeitoutfit" }, touren: ["zelt", "huette"] },
     { id: "w-longsleeve-poly", name: "Longsleeve (Poly)", modul: "kleidung", gruppe: "Campoutfit", phase: "packen", optional: true, arten: ["wandern"], notiz: "Backup", touren: ["zelt"] },
     { id: "w-ls-merino-dick", name: "Merino-Langarm, dick", modul: "kleidung", gruppe: "Schlafoutfit", phase: "packen", arten: ["wandern"], touren: ["zelt"] },
     { id: "w-leggins-merino", name: "Merino-Leggins", modul: "kleidung", gruppe: "Schlafoutfit", phase: "packen", arten: ["wandern"], touren: ["zelt"] },
@@ -168,14 +169,17 @@ window.PACK_DATA = {
     { id: "badelatschen", name: "Crocs / Badelatschen", modul: "schuhe", einheit: "Paar", phase: "packen" },
 
     // ---------- Ausrüstung & Ordnung ----------
-    { id: "rucksack", name: "Rucksack", modul: "ausruestung", phase: "packen", arten: ["wandern"] },
+    { id: "rucksack", name: "Rucksack", modul: "ausruestung", phase: "packen", arten: ["wandern"], touren: ["zelt", "huette"] },
+    { id: "tagesrucksack", name: "Tagesrucksack (20–30 l)", modul: "ausruestung", phase: "packen", arten: ["wandern"], touren: ["tag"] },
+    { id: "brotdose", name: "Brotdose", modul: "ausruestung", phase: "packen", arten: ["wandern"], touren: ["tag"] },
+    { id: "tagesproviant", name: "Lunch & Snacks für die Tour", modul: "ausruestung", phase: "abreise", aufgabe: true, arten: ["wandern"], touren: ["tag"], notiz: "am Vorabend vorbereiten" },
     { id: "bauchtasche", name: "Bauchtasche", modul: "ausruestung", phase: "packen" },
     { id: "stirnlampe", name: "Stirnlampe", modul: "ausruestung", phase: "packen", notiz: "Akku laden" },
     { id: "taschenmesser", name: "Taschenmesser", modul: "ausruestung", phase: "packen", notiz: "nicht ins Handgepäck" },
     { id: "trekkingstoecke", name: "Trekkingstöcke", modul: "ausruestung", einheit: "Paar", phase: "packen", arten: ["wandern"] },
-    { id: "drysacks", name: "Dry Sacks", modul: "ausruestung", menge: { basis: 3 }, phase: "packen", arten: ["wandern"] },
+    { id: "drysacks", name: "Dry Sacks", modul: "ausruestung", menge: { basis: 3 }, phase: "packen", arten: ["wandern"], touren: ["zelt", "huette"] },
     { id: "zipbeutel", name: "Zipbeutel", modul: "ausruestung", menge: { basis: 2, proTag: 0.5, max: 6 }, phase: "packen" },
-    { id: "papiertueten", name: "Papiertüten, dick", modul: "ausruestung", menge: { basis: 3 }, phase: "packen", arten: ["wandern"] },
+    { id: "papiertueten", name: "Papiertüten, dick", modul: "ausruestung", menge: { basis: 3 }, phase: "packen", arten: ["wandern"], touren: ["zelt", "huette"] },
     { id: "muelltueten", name: "Kleine Mülltüten", modul: "ausruestung", menge: { basis: 1, proTag: 0.5, max: 5 }, phase: "packen", geteilt: true },
     { id: "plastiktuete", name: "Plastiktüte (Schmutzwäsche)", modul: "ausruestung", phase: "packen" },
     { id: "toilettenpapier", name: "Toilettenpapier", modul: "ausruestung", einheit: "Rolle", menge: { basis: 1, proTag: 0.25, max: 3 }, phase: "besorgen", geteilt: true, arten: ["wandern"] },
