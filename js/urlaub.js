@@ -935,7 +935,7 @@
         <div class="seg"><button data-act="view" data-id="tabelle" class="${cards ? "" : "on"}">Tabelle</button><button data-act="view" data-id="karten" class="${cards ? "on" : ""}">Karten</button></div>
         <span class="muted small">${cards ? "" : "Tab = nächste Zelle · Änderungen werden automatisch gespeichert"}</span>
         <span class="spacer"></span>
-        <button class="btn sm" data-act="print">${ICON.print} Drucken</button>
+        <button class="btn sm" data-act="print" title="Lädt die Excel-Datei – im Querformat auf Seitenbreite eingestellt, fertig zum Drucken">${ICON.print} Drucken (Excel)</button>
       </div>
       ${extra ? `<p class="hint">Der Zeitraum ist kürzer als der Plan – Tage nach Reiseende sind grau markiert und können gelöscht werden.</p>` : ""}
       ${body}`;
@@ -964,7 +964,7 @@
       case "invite": return openInvite(t);
       case "export": return exportExcel(t);
       case "map": state.ui.mapTrip = t.id; state.ui.mapDetail = "route"; C.store.save(); location.hash = "karte"; return;
-      case "print": return C.doPrint();
+      case "print": return exportExcel(t); // Drucken = druckfertige Excel-Datei
       case "dup": {
         const c = clone(t); c.id = uid() + uid(); c.name = tripName(t) + " (Kopie)"; c.status = {}; c.tickets = [];
         state.keys[c.id] = { k: S.randomKey(), owner: true }; state.me[c.id] = C.myId(t);
@@ -1815,16 +1815,20 @@
     const sum = ws.addRow(["Summe", "", "", "", "", "", { formula: `SUM(G5:G${last})` }, "", { formula: `SUM(I5:I${last})` }, { formula: `SUM(J5:J${last})` }]);
     sum.font = { bold: true }; sum.eachCell((c) => { c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: PAPER } }; });
     ws.autoFilter = { from: "A4", to: `N${last}` };
+    ws.pageSetup = { paperSize: 9, orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0, printTitlesRow: "4:4", margins: { left: 0.4, right: 0.4, top: 0.5, bottom: 0.5, header: 0.2, footer: 0.2 } };
+    ws.headerFooter = { oddFooter: `&L${tripName(t).replace(/&/g, "&&")}&RSeite &P von &N` };
     // --- Recherche ---
     const rc = t.recherche || {};
     if (RECHERCHE.some((f) => rc[f.k])) {
       const wr = wb.addWorksheet("Recherche");
       wr.columns = [{ header: "Thema", width: 18 }, { header: "Notizen", width: 90 }]; headStyle(wr.getRow(1));
+      wr.pageSetup = { paperSize: 9, orientation: "portrait", fitToPage: true, fitToWidth: 1, fitToHeight: 0 };
       RECHERCHE.forEach((f) => { if (rc[f.k]) { const row = wr.addRow([f.h, plain(rc[f.k])]); row.alignment = { vertical: "top", wrapText: true }; } });
     }
 
     // --- Kosten ---
     const wk = wb.addWorksheet("Kosten", { views: [{ state: "frozen", ySplit: 1 }] });
+    wk.pageSetup = { paperSize: 9, orientation: "portrait", fitToPage: true, fitToWidth: 1, fitToHeight: 0 };
     wk.columns = [{ header: "Datum", width: 12 }, { header: "Betrag", width: 12 }, { header: "Wofür", width: 34 }, { header: "Kategorie", width: 14 }, { header: "Bezahlt von", width: 16 }, { header: "Für wen", width: 28 }];
     headStyle(wk.getRow(1));
     const cur = t.waehrung === "€" ? '#,##0.00 "€"' : `#,##0.00 "${t.waehrung}"`;
