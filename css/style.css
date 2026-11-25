@@ -545,7 +545,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, .btn:focus-vi
 .day-cell small { font-size: .65rem; opacity: .85; text-transform: uppercase; letter-spacing: .04em; }
 .day-cell b { font-family: var(--font-display); font-size: 1.15rem; }
 .day-cell .mon { text-transform: none; min-height: .8em; }
-.art-wandern { --art: var(--forest-2); } .art-stadt { --art: var(--sky); }
+.art-wandern { --art: var(--forest-2); } .art-stadt { --art: var(--sky); } .art-entspannung { --art: #c08a3e; }
 .day-cell { background: var(--art, var(--moss)); }
 .chip.brush .swatch { width: 10px; height: 10px; border-radius: 3px; background: var(--art); display: inline-block; }
 .chip.brush.on { background: var(--art); border-color: var(--art); color: #fff; }

@@ -26,12 +26,13 @@
     gewicht   Gramm pro Stück (optional, für die Gewichtssumme)
     touren    ["zelt"], ["huette"], ["tag"] = nur bei dieser Art von Wanderurlaub (Tag = Tagestrips;
               mehrere Arten lassen sich kombinieren, das Item ist dabei, wenn eine davon passt)
-    gruppeJe  andere Unterüberschrift je Tourart, z. B. { huette: "Freizeitoutfit" }
+    gruppeJe  andere Unterüberschrift je Tourart, z. B. { huette: "Freizeitoutfit" },
+              oder je Reiseart ohne Städtetrip, z. B. { entspannung: "Freizeit" }
     nichtBei  ["kaelte"] = ausblenden, wenn das Modul aktiv ist (z. B. kurze Hose bei Kälte)
     nurBei    ["kaelte"] = nur zeigen, wenn das Modul aktiv ist
 */
 window.PACK_DATA = {
-  version: 4,
+  version: 5,
 
   phasen: [
     { id: "besorgen", name: "Vorher besorgen", info: "Einkaufen, nachfüllen, ausleihen" },
@@ -49,6 +50,10 @@ window.PACK_DATA = {
       id: "stadt", name: "Städtetrip",
       module: ["kleidung", "ausruestung", "wetter", "schuhe", "technik", "proviant", "komfort", "hygiene",
                "apotheke", "dokumente"]
+    },
+    {
+      id: "entspannung", name: "Entspannungsurlaub",
+      module: ["kleidung", "wetter", "schuhe", "technik", "strand", "komfort", "hygiene", "apotheke", "dokumente"]
     }
   ],
 
@@ -67,6 +72,7 @@ window.PACK_DATA = {
     { id: "kochen", name: "Kochen" },
     { id: "wasser", name: "Wasser" },
     { id: "proviant", name: "Reiseproviant" },
+    { id: "strand", name: "Strand, Pool & Wellness" },
     { id: "komfort", name: "Freizeit & Komfort" },
     { id: "dokumente", name: "Dokumente & Geld" }
   ],
@@ -94,7 +100,7 @@ window.PACK_DATA = {
     { id: "sonnencreme", name: "Sonnencreme", modul: "hygiene", phase: "packen", geteilt: true },
     { id: "mueckenspray", name: "Mückenspray", modul: "hygiene", phase: "besorgen", geteilt: true, nichtBei: ["kaelte"] },
     { id: "nagelknipser", name: "Nagelknipser", modul: "hygiene", phase: "packen", geteilt: true },
-    { id: "wattestaebchen", name: "Wattestäbchen", modul: "hygiene", phase: "packen", arten: ["stadt"] },
+    { id: "wattestaebchen", name: "Wattestäbchen", modul: "hygiene", phase: "packen", arten: ["stadt", "entspannung"] },
     { id: "feuchttuecher", name: "Feuchttücher", modul: "hygiene", einheit: "Pack", phase: "besorgen" },
     { id: "taschentuecher", name: "Taschentücher", modul: "hygiene", einheit: "Pack", menge: { basis: 1, proTag: 0.3, max: 4 }, phase: "packen" },
     { id: "oropax", name: "Oropax", modul: "hygiene", phase: "packen" },
@@ -118,17 +124,19 @@ window.PACK_DATA = {
     { id: "bh", name: "BH", modul: "kleidung", gruppe: "Basics", menge: { basis: 1, proTag: 0.3, max: 3 }, phase: "packen", optional: true },
     { id: "sport-bh", name: "Sport-BH", modul: "kleidung", gruppe: "Basics", menge: { basis: 1, proTag: 0.2, max: 2 }, phase: "packen", optional: true },
     // Stadt
-    { id: "s-socken-kurz", name: "Socken, kurz", modul: "kleidung", gruppe: "Stadt", einheit: "Paar", menge: { basis: 1, proTag: 1, max: 6 }, phase: "packen", arten: ["stadt"] },
-    { id: "s-socken-lang", name: "Socken, lang", modul: "kleidung", gruppe: "Stadt", einheit: "Paar", menge: { basis: 0, proTag: 0.5, max: 3 }, phase: "packen", arten: ["stadt"] },
-    { id: "s-tshirts", name: "T-Shirts", modul: "kleidung", gruppe: "Stadt", menge: { basis: 1, proTag: 0.5, max: 4 }, phase: "packen", arten: ["stadt"] },
-    { id: "s-hemd", name: "Hemd", modul: "kleidung", gruppe: "Stadt", phase: "packen", optional: true, arten: ["stadt"], notiz: "falls ein schöner Abend geplant ist" },
-    { id: "s-longsleeve", name: "Longsleeve", modul: "kleidung", gruppe: "Stadt", phase: "packen", arten: ["stadt"] },
-    { id: "s-merino-ls", name: "Merino-Longsleeve", modul: "kleidung", gruppe: "Stadt", menge: { basis: 1, proTag: 0.15, max: 2 }, phase: "packen", arten: ["stadt"] },
-    { id: "s-pullover", name: "Pullover / Fleece", modul: "kleidung", gruppe: "Stadt", menge: { basis: 1, proTag: 0.15, max: 2 }, phase: "packen", arten: ["stadt"] },
-    { id: "s-hose-lang", name: "Hose, lang", modul: "kleidung", gruppe: "Stadt", menge: { basis: 1, proTag: 0.15, max: 2 }, phase: "packen", arten: ["stadt"] },
-    { id: "s-hose-kurz", name: "Hose, kurz", modul: "kleidung", gruppe: "Stadt", phase: "packen", optional: true, arten: ["stadt"], notiz: "je nach Wetterbericht", nichtBei: ["kaelte"] },
-    { id: "s-leggins", name: "Leggins (Schlafen / drunter)", modul: "kleidung", gruppe: "Stadt", phase: "packen", arten: ["stadt"] },
-    { id: "s-laufhose", name: "Laufhose", modul: "kleidung", gruppe: "Stadt", phase: "packen", optional: true, arten: ["stadt"] },
+    { id: "s-socken-kurz", name: "Socken, kurz", modul: "kleidung", gruppe: "Stadt", einheit: "Paar", menge: { basis: 1, proTag: 1, max: 6 }, phase: "packen", arten: ["stadt", "entspannung"], gruppeJe: { entspannung: "Freizeit" } },
+    { id: "s-socken-lang", name: "Socken, lang", modul: "kleidung", gruppe: "Stadt", einheit: "Paar", menge: { basis: 0, proTag: 0.5, max: 3 }, phase: "packen", arten: ["stadt", "entspannung"], gruppeJe: { entspannung: "Freizeit" } },
+    { id: "s-tshirts", name: "T-Shirts", modul: "kleidung", gruppe: "Stadt", menge: { basis: 1, proTag: 0.5, max: 4 }, phase: "packen", arten: ["stadt", "entspannung"], gruppeJe: { entspannung: "Freizeit" } },
+    { id: "s-hemd", name: "Hemd", modul: "kleidung", gruppe: "Stadt", phase: "packen", optional: true, arten: ["stadt", "entspannung"], gruppeJe: { entspannung: "Freizeit" }, notiz: "falls ein schöner Abend geplant ist" },
+    { id: "s-longsleeve", name: "Longsleeve", modul: "kleidung", gruppe: "Stadt", phase: "packen", arten: ["stadt", "entspannung"], gruppeJe: { entspannung: "Freizeit" } },
+    { id: "s-merino-ls", name: "Merino-Longsleeve", modul: "kleidung", gruppe: "Stadt", menge: { basis: 1, proTag: 0.15, max: 2 }, phase: "packen", arten: ["stadt", "entspannung"], gruppeJe: { entspannung: "Freizeit" } },
+    { id: "s-pullover", name: "Pullover / Fleece", modul: "kleidung", gruppe: "Stadt", menge: { basis: 1, proTag: 0.15, max: 2 }, phase: "packen", arten: ["stadt", "entspannung"], gruppeJe: { entspannung: "Freizeit" } },
+    { id: "s-hose-lang", name: "Hose, lang", modul: "kleidung", gruppe: "Stadt", menge: { basis: 1, proTag: 0.15, max: 2 }, phase: "packen", arten: ["stadt", "entspannung"], gruppeJe: { entspannung: "Freizeit" } },
+    { id: "s-hose-kurz", name: "Hose, kurz", modul: "kleidung", gruppe: "Stadt", phase: "packen", optional: true, arten: ["stadt", "entspannung"], gruppeJe: { entspannung: "Freizeit" }, notiz: "je nach Wetterbericht", nichtBei: ["kaelte"] },
+    { id: "s-leggins", name: "Leggins (Schlafen / drunter)", modul: "kleidung", gruppe: "Stadt", phase: "packen", arten: ["stadt", "entspannung"], gruppeJe: { entspannung: "Freizeit" } },
+    { id: "e-leicht", name: "Leinenhemd / leichtes Kleid", modul: "kleidung", gruppe: "Freizeit", menge: { basis: 1, proTag: 0.3, max: 3 }, phase: "packen", arten: ["entspannung"], nichtBei: ["kaelte"] },
+    { id: "e-abend", name: "Etwas Schickes für den Abend", modul: "kleidung", gruppe: "Freizeit", phase: "packen", optional: true, arten: ["entspannung"] },
+    { id: "s-laufhose", name: "Laufhose", modul: "kleidung", gruppe: "Stadt", phase: "packen", optional: true, arten: ["stadt", "entspannung"], gruppeJe: { entspannung: "Freizeit" } },
     // Wandern
     { id: "w-sunhoodie", name: "Sun Hoodie (Poly)", modul: "kleidung", gruppe: "Wanderoutfit", phase: "packen", arten: ["wandern"], nichtBei: ["kaelte"] },
     { id: "w-shirt-merino", name: "Merino-Shirt", modul: "kleidung", gruppe: "Wanderoutfit", phase: "packen", arten: ["wandern"] },
@@ -165,7 +173,8 @@ window.PACK_DATA = {
 
     // ---------- Schuhe ----------
     { id: "wanderschuhe", name: "Wanderschuhe", modul: "schuhe", einheit: "Paar", phase: "packen", arten: ["wandern"] },
-    { id: "sneaker", name: "Sneaker", modul: "schuhe", einheit: "Paar", phase: "packen", arten: ["stadt"] },
+    { id: "sneaker", name: "Sneaker", modul: "schuhe", einheit: "Paar", phase: "packen", arten: ["stadt", "entspannung"] },
+    { id: "sandalen", name: "Sandalen", modul: "schuhe", einheit: "Paar", phase: "packen", arten: ["entspannung"], nichtBei: ["kaelte"] },
     { id: "badelatschen", name: "Crocs / Badelatschen", modul: "schuhe", einheit: "Paar", phase: "packen" },
 
     // ---------- Ausrüstung & Ordnung ----------
@@ -229,6 +238,19 @@ window.PACK_DATA = {
     { id: "stifte", name: "Kuli, Bleistift, Radierer", modul: "komfort", phase: "packen" },
     { id: "schlafmaske", name: "Schlafmaske", modul: "komfort", phase: "packen" },
     { id: "flachmann", name: "Flachmann", modul: "komfort", phase: "besorgen", optional: true, notiz: "Whiskey / Rum / Kräuter" },
+
+    // ---------- Strand, Pool & Wellness (Entspannungsurlaub) ----------
+    { id: "badesachen-2", name: "Zweite Badehose / Bikini", modul: "strand", phase: "packen", notiz: "eine trocknet, eine wird getragen" },
+    { id: "strandtuch", name: "Strandtuch / Hamamtuch", modul: "strand", phase: "packen" },
+    { id: "sonnenhut", name: "Sonnenhut / Cap", modul: "strand", phase: "packen" },
+    { id: "aftersun", name: "After-Sun / Aloe vera", modul: "strand", phase: "besorgen", geteilt: true },
+    { id: "lippen-lsf", name: "Lippenpflege mit LSF", modul: "strand", phase: "packen" },
+    { id: "strandtasche", name: "Strandtasche / Jutebeutel", modul: "strand", phase: "packen" },
+    { id: "buch", name: "Buch / Hörbücher offline laden", modul: "strand", phase: "packen" },
+    { id: "kartenspiel", name: "Kartenspiel / Reisespiel", modul: "strand", phase: "packen", optional: true, geteilt: true },
+    { id: "schnorchel", name: "Schnorchel & Taucherbrille", modul: "strand", phase: "packen", optional: true },
+    { id: "wasserschuhe", name: "Wasserschuhe", modul: "strand", einheit: "Paar", phase: "packen", optional: true, notiz: "bei Steinstrand oder Seeigeln" },
+    { id: "lautsprecher", name: "Kleiner Bluetooth-Lautsprecher", modul: "strand", phase: "packen", optional: true, geteilt: true },
 
     // ---------- Reiseproviant (An-/Abreise, Stadt) ----------
     { id: "p-ramen", name: "Ramen", modul: "proviant", menge: { basis: 1, proTag: 0.3, max: 3 }, phase: "besorgen" },

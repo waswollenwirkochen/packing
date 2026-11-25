@@ -319,9 +319,10 @@
     huette: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 20l6-10 3 4 4-7 7 13z"/><path d="M15 7l1.5-2.5L18 7"/></svg>',
     stadt: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M5 21V10l4-2v13M9 21V5l6-2v18M15 21V9l4 2v10"/><path d="M11.5 8h1M11.5 11h1M11.5 14h1"/></svg>',
     berg: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 20 9.5 8l3.5 6 2.5-4L21 20Z"/><path d="m7.6 11.5 1.9 1.5 1.6-1.4"/></svg>',
+    strand: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4a8 8 0 0 1 8 7H4a8 8 0 0 1 8-7Z"/><path d="M12 11v9"/><path d="M3 20.5c1.5-1 3-1 4.5 0s3 1 4.5 0 3-1 4.5 0 3 1 4.5 0"/></svg>',
     flug: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10.5 13.5 3 11l1.2-1.6 8.3 1L17 5.6c.9-.9 2.4-.9 2.9-.4s.5 2-.4 2.9L14.6 12.5l1 8.3L14 22l-2.5-7.5"/></svg>'
   };
-  const tripIcon = (t) => TI[(t.arten || []).includes("wandern") ? (() => { const tt = t.touren && t.touren.length ? t.touren : [t.tour || "zelt"]; return tt.includes("zelt") ? "zelt" : tt.includes("huette") ? "huette" : "berg"; })() : (t.arten || []).includes("stadt") ? "stadt" : "flug"];
+  const tripIcon = (t) => TI[(t.arten || []).includes("wandern") ? (() => { const tt = t.touren && t.touren.length ? t.touren : [t.tour || "zelt"]; return tt.includes("zelt") ? "zelt" : tt.includes("huette") ? "huette" : "berg"; })() : (t.arten || []).includes("stadt") ? "stadt" : (t.arten || []).includes("entspannung") ? "strand" : "flug"];
   const coverOf = (t) => (t.cover && (t.fotos || []).find((f) => f.id === t.cover)) || null;
   const urlCache = {};
   async function photoUrl(t, fid, type = "image/jpeg") {

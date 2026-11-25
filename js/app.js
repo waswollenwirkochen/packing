@@ -123,11 +123,18 @@
     base.items.forEach((b, idx) => {
       const o = own.items.find((x) => x.id === b.id);
       if (o) ["touren", "gruppeJe", "nichtBei", "nurBei"].forEach((k) => { if (b[k] && o[k] == null) o[k] = clone(b[k]); });
-      else if (["w-hose-lang", "w-leggins-drunter", "huettenbargeld", "reisekissen-huette", "tagesrucksack", "brotdose", "tagesproviant"].includes(b.id)) {
+      else if (["w-hose-lang", "w-leggins-drunter", "huettenbargeld", "reisekissen-huette", "tagesrucksack", "brotdose", "tagesproviant",
+        "e-leicht", "e-abend", "sandalen", "badesachen-2", "strandtuch", "sonnenhut", "aftersun", "lippen-lsf", "strandtasche", "buch", "kartenspiel", "schnorchel", "wasserschuhe", "lautsprecher"].includes(b.id)) {
         const prev = base.items[idx - 1]; const at = prev ? own.items.findIndex((x) => x.id === prev.id) : -1;
         own.items.splice(at + 1, 0, clone(b));
       }
     });
+    if ((own.version || 1) < 5) {
+      // Entspannungsurlaub: Reiseart, Modul und Zuordnung der Alltagskleidung ergänzen
+      base.arten.forEach((a) => { if (!own.arten.some((x) => x.id === a.id)) own.arten.push(clone(a)); });
+      base.module.forEach((m, i) => { if (!own.module.some((x) => x.id === m.id)) { const prev = base.module[i - 1]; const at = prev ? own.module.findIndex((x) => x.id === prev.id) : -1; own.module.splice(at + 1, 0, clone(m)); } });
+      own.items.forEach((o) => { const b = base.items.find((x) => x.id === o.id); if (b && b.arten && b.arten.includes("entspannung") && o.arten && !o.arten.includes("entspannung")) o.arten.push("entspannung"); });
+    }
     if ((own.version || 1) < 3) {
       const rk = own.items.find((x) => x.id === "reisekissen"); if (rk && rk.modul === "komfort") { rk.modul = "schlafen-zelt"; delete rk.optional; }
       const pos = (id) => { const i = base.module.findIndex((m) => m.id === id); return i < 0 ? 999 : i; };
@@ -230,6 +237,8 @@
       src = Array.from({ length: t.tage }, (_, i) => {
         const typ = t.plan[i] && t.plan[i].typ;
         if (typ === "wandern" && t.arten.includes("wandern")) last = "wandern";
+        else if (["strand", "ruhe"].includes(typ) && t.arten.includes("entspannung")) last = "entspannung";
+        else if (typ === "stadt" && t.arten.includes("stadt")) last = "stadt";
         else if (["stadt", "strand", "fahrt", "anreise", "abreise"].includes(typ)) last = alt;
         return last;
       });
@@ -299,7 +308,9 @@
   // Items lassen sich je Reise verschieben: t.lage[id] = { m: Modul, g: Unterüberschrift, o: Reihenfolge }
   const lageOf = (t, it) => (t.lage && t.lage[it.id]) || null;
   const modOf = (t, it) => (lageOf(t, it) && lageOf(t, it).m) || it.modul;
-  const grpOf = (t, it) => { const l = lageOf(t, it); if (l && l.g != null) return l.g || null; if (!it.gruppeJe || toursOf(t).includes("zelt")) return it.gruppe; const k = toursOf(t).find((x) => it.gruppeJe[x]); return (k && it.gruppeJe[k]) || it.gruppe; };
+  const grpOf = (t, it) => { const l = lageOf(t, it); if (l && l.g != null) return l.g || null;
+    if (it.gruppeJe && it.gruppeJe.entspannung && t.arten.includes("entspannung") && !t.arten.includes("stadt")) return it.gruppeJe.entspannung;
+    if (!it.gruppeJe || toursOf(t).includes("zelt")) return it.gruppe; const k = toursOf(t).find((x) => it.gruppeJe[x]); return (k && it.gruppeJe[k]) || it.gruppe; };
   const ordOf = (t, it) => { const l = lageOf(t, it); return l && l.o != null ? l.o : PACK().items.indexOf(it); };
   // Tourart an/aus (mind. eine bleibt an); Schlaf- und Kochmodule folgen der Auswahl
   function setTour(t, tour) {
