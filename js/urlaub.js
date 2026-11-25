@@ -180,6 +180,24 @@
   const num = (v) => { const n = parseFloat(String(v ?? "").replace(",", ".")); return isNaN(n) ? 0 : n; };
   const fmtNum = (n, d = 0) => n.toLocaleString("de-DE", { maximumFractionDigits: d });
   const money = (t, n) => (n || 0).toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " " + (t.waehrung || "€");
+  // ---------- Währungen ----------
+  const WAEHRUNGEN = [["EUR", "€", "Euro"], ["CHF", "CHF", "Schweizer Franken"], ["GBP", "£", "Britisches Pfund"], ["USD", "$", "US-Dollar"], ["NOK", "NOK", "Norwegische Krone"],
+    ["SEK", "SEK", "Schwedische Krone"], ["DKK", "DKK", "Dänische Krone"], ["ISK", "ISK", "Isländische Krone"], ["CZK", "Kč", "Tschechische Krone"], ["PLN", "zł", "Złoty"],
+    ["HUF", "Ft", "Forint"], ["RON", "lei", "Rumänischer Leu"], ["BGN", "лв", "Lew"], ["ALL", "Lek", "Albanischer Lek"], ["RSD", "RSD", "Serbischer Dinar"], ["BAM", "KM", "Konvertible Mark"],
+    ["MKD", "den", "Mazedonischer Denar"], ["TRY", "₺", "Türkische Lira"], ["GEL", "₾", "Georgischer Lari"], ["MAD", "MAD", "Marokkanischer Dirham"], ["CAD", "CA$", "Kanadischer Dollar"],
+    ["AUD", "AU$", "Australischer Dollar"], ["NZD", "NZ$", "Neuseeland-Dollar"], ["JPY", "¥", "Yen"], ["THB", "฿", "Baht"], ["VND", "₫", "Dong"], ["IDR", "Rp", "Rupiah"],
+    ["INR", "₹", "Rupie"], ["MXN", "MX$", "Mexikanischer Peso"], ["CNY", "CN¥", "Yuan"], ["KRW", "₩", "Won"], ["ZAR", "R", "Rand"]];
+  const SYM2CODE = { "€": "EUR", "$": "USD", "£": "GBP", "¥": "JPY", "Fr.": "CHF", "kr": "NOK" };
+  const curCode = (x) => { x = String(x || "€").trim(); if (SYM2CODE[x]) return SYM2CODE[x]; const u = x.toUpperCase(); return WAEHRUNGEN.some((w) => w[0] === u) || /^[A-Z]{3}$/.test(u) ? u : "EUR"; };
+  const curSym = (code) => (WAEHRUNGEN.find((w) => w[0] === code) || [code, code])[1];
+  const baseCode = (t) => curCode(t.waehrung);
+  const fmtN = (n, d = 2) => (n || 0).toLocaleString("de-DE", { minimumFractionDigits: d, maximumFractionDigits: d });
+  const moneyIn = (code, n) => fmtN(n, ["JPY", "KRW", "VND", "IDR", "ISK", "HUF"].includes(code) ? 0 : 2) + " " + curSym(code);
+  // Kurs: wie viel Hauptwährung ist 1 Einheit der Fremdwährung?
+  const rateOf = (t, code) => (code === baseCode(t) ? 1 : num(((t.kurse || {})[code] || {}).r) || 0);
+  const kCode = (t, k) => (k.wae && k.wae !== baseCode(t) ? k.wae : baseCode(t));
+  const inBase = (t, k) => num(k.betrag) * (rateOf(t, kCode(t, k)) || 0);
+  const tripCurrencies = (t) => [...new Set([baseCode(t), ...(t.waehrungen || []), ...(t.kosten || []).map((k) => kCode(t, k))])];
   // "5:30h", "5h30", "5,5 h", "6h" → Minuten
   function durMin(s) {
     s = String(s || "").toLowerCase().replace(",", ".");
@@ -777,7 +795,7 @@
           if (!ps.length) return ($("#splitMsg", m).textContent = "Bitte mindestens eine Person auswählen.");
           if (!t.gruppe) t.gruppe = t.id;
           const n = C.newTrip(t.arten);
-          Object.assign(n, { name: f.name.value.trim() || f.name.placeholder, ziel: t.ziel, waehrung: t.waehrung, module: [...t.module], gruppe: t.gruppe, vergangen: t.vergangen, jahr: t.jahr });
+          Object.assign(n, { name: f.name.value.trim() || f.name.placeholder, ziel: t.ziel, waehrung: t.waehrung, waehrungen: t.waehrungen, kurse: t.kurse, module: [...t.module], gruppe: t.gruppe, vergangen: t.vergangen, jahr: t.jahr });
           n.personen = ps.map((name) => ({ id: uid(), name }));
           const ab = f.ab ? parseInt(f.ab.value, 10) : NaN;
           if (canMove && ab > 0) {
@@ -860,7 +878,7 @@
       hoch: rows.reduce((s, r) => s + num(r.hoch), 0),
       runter: rows.reduce((s, r) => s + num(r.runter), 0),
       fKm: rows.filter((r) => ["fahrt", "anreise", "abreise"].includes(r.typ)).reduce((s, r) => s + num(r.km), 0),
-      kosten: (t.kosten || []).reduce((s, k) => s + num(k.betrag), 0),
+      kosten: (t.kosten || []).reduce((s, k) => s + inBase(t, k), 0),
       files: (t.tickets || []).length
     };
   }
@@ -1295,12 +1313,15 @@
     const ids = t.personen.map((p) => p.id);
     const paid = {}, share = {}; ids.forEach((id) => { paid[id] = 0; share[id] = 0; });
     (t.kosten || []).forEach((k) => {
-      const b = num(k.betrag); if (!b) return;
+      const b = inBase(t, k); if (!b) return;
       const fuer = (k.fuer && k.fuer.length ? k.fuer : ids).filter((x) => ids.includes(x));
       if (k.von && paid[k.von] != null) paid[k.von] += b;
       fuer.forEach((x) => { share[x] += b / (fuer.length || 1); });
     });
-    const saldo = {}; ids.forEach((id) => { saldo[id] = paid[id] - share[id]; });
+    // beglichene Ausgleichszahlungen: von hat an überwiesen
+    const sent = {}; ids.forEach((id) => { sent[id] = 0; });
+    (t.zahlungen || []).forEach((z) => { if (sent[z.von] != null && sent[z.an] != null) { sent[z.von] += num(z.betrag); sent[z.an] -= num(z.betrag); } });
+    const saldo = {}; ids.forEach((id) => { saldo[id] = paid[id] - share[id] + sent[id]; });
     // möglichst wenige Überweisungen
     const deb = ids.filter((id) => saldo[id] < -0.005).map((id) => ({ id, v: -saldo[id] })).sort((a, b) => b.v - a.v);
     const cre = ids.filter((id) => saldo[id] > 0.005).map((id) => ({ id, v: saldo[id] })).sort((a, b) => b.v - a.v);
@@ -1313,50 +1334,91 @@
       if (deb[di].v < 0.005) di++;
       if (cre[ci].v < 0.005) ci++;
     }
-    return { paid, share, saldo, transfers };
+    return { paid, share, saldo, transfers, sent };
   }
   function renderKosten() {
     const t = trip(); const el = $("#view-kosten");
     const ids = t.personen.map((p) => p.id);
-    const total = (t.kosten || []).reduce((s, k) => s + num(k.betrag), 0);
+    const base = baseCode(t), curs = tripCurrencies(t);
+    const missing = curs.filter((c) => c !== base && !rateOf(t, c));
+    const total = (t.kosten || []).reduce((s, k) => s + inBase(t, k), 0);
     const b = balances(t);
-    const byKat = {}; (t.kosten || []).forEach((k) => { const kat = k.kat || "Sonstiges"; byKat[kat] = (byKat[kat] || 0) + num(k.betrag); });
+    const byKat = {}; (t.kosten || []).forEach((k) => { const kat = k.kat || "Sonstiges"; byKat[kat] = (byKat[kat] || 0) + inBase(t, k); });
     const sorted = [...(t.kosten || [])].sort((a, c) => (a.datum || "9999").localeCompare(c.datum || "9999"));
+    const curOpts = (sel) => curs.map((c) => `<option value="${c}" ${c === sel ? "selected" : ""}>${c}</option>`).join("") + `<option value="+">+ weitere …</option>`;
+    const rc = state.ui.rechner ||= { betrag: "100", von: curs.find((c) => c !== base) || base };
+    if (!curs.includes(rc.von) || rc.von === base) rc.von = curs.find((c) => c !== base) || base;
+    const rcVal = num(rc.betrag) * (rateOf(t, rc.von) || 0);
     el.innerHTML = `
       ${whoAmI(t)}
+      ${missing.length ? `<div class="card card-pad warn-box">Für ${missing.join(", ")} fehlt noch ein Kurs – diese Ausgaben zählen erst mit, wenn rechts unter „Währungen“ ein Kurs steht. <button class="btn sm" data-act="kurse">Kurse jetzt holen</button></div>` : ""}
       <div class="kosten-layout">
         <div class="card sheet-wrap">
           <table class="sheet kosten">
-            <thead><tr><th style="width:8.6em">Datum</th><th class="n" style="width:6.5em">Betrag</th><th>Wofür</th><th style="width:9.5em">Kategorie</th><th style="width:8em">Bezahlt von</th><th style="width:11em">Für wen</th><th style="width:2.5em"></th></tr></thead>
-            <tbody>${sorted.map((k) => `<tr data-k="${k.id}">
+            <thead><tr><th style="width:8.6em">Datum</th><th class="n" style="width:12em">Betrag</th><th>Wofür</th><th style="width:9.5em">Kategorie</th><th style="width:8em">Bezahlt von</th><th style="width:11em">Für wen</th><th style="width:2.5em"></th></tr></thead>
+            <tbody>${sorted.map((k) => { const kc = kCode(t, k), foreign = kc !== base; return `<tr data-k="${k.id}">
               <td><input data-kc="${k.id}:datum" value="${C.toDE(k.datum || "")}" placeholder="TT.MM.JJJJ" inputmode="numeric"></td>
-              <td class="n"><input data-kc="${k.id}:betrag" value="${k.betrag != null && k.betrag !== "" ? String(k.betrag).replace(".", ",") : ""}" inputmode="decimal" placeholder="0,00"></td>
+              <td class="n"><div class="amt"><input data-kc="${k.id}:betrag" value="${k.betrag != null && k.betrag !== "" ? String(k.betrag).replace(".", ",") : ""}" inputmode="decimal" placeholder="0,00" aria-label="Betrag">
+                <select data-kc="${k.id}:wae" class="cur-sel" aria-label="Währung">${curOpts(kc)}</select></div>
+                ${foreign && num(k.betrag) ? `<div class="conv">${rateOf(t, kc) ? "≈ " + money(t, inBase(t, k)) : "Kurs fehlt"}</div>` : ""}</td>
               <td><input data-kc="${k.id}:grund" value="${esc(k.grund || "")}" placeholder="z. B. Hotel Lyon"></td>
               <td><select data-kc="${k.id}:kat">${KATEGORIEN.map((x) => `<option ${x === (k.kat || "Sonstiges") ? "selected" : ""}>${x}</option>`).join("")}</select></td>
               <td><select data-kc="${k.id}:von"><option value="">–</option>${t.personen.map((p) => `<option value="${p.id}" ${p.id === k.von ? "selected" : ""}>${esc(pname(t, p))}</option>`).join("")}</select></td>
               <td><div class="fuer">${t.personen.map((p) => { const on = !k.fuer || !k.fuer.length || k.fuer.includes(p.id); return `<button class="chip chip-s ${on ? "on" : ""}" data-fuer="${k.id}:${p.id}" aria-pressed="${on}">${esc(pname(t, p))}</button>`; }).join("")}</div></td>
               <td class="c"><button class="icon-btn" data-kdel="${k.id}" aria-label="Ausgabe löschen">${ICONS.trash}</button></td>
-            </tr>`).join("") || `<tr><td colspan="7" class="muted" style="padding:1rem">Noch keine Ausgaben eingetragen.</td></tr>`}</tbody>
-            <tfoot><tr><th>Summe</th><td class="n"><b>${money(t, total)}</b></td><td colspan="5"></td></tr></tfoot>
+            </tr>`; }).join("") || `<tr><td colspan="7" class="muted" style="padding:1rem">Noch keine Ausgaben eingetragen.</td></tr>`}</tbody>
+            <tfoot><tr><th>Summe</th><td class="n"><b>${money(t, total)}</b></td><td colspan="5" class="muted small">${curs.length > 1 ? "alles umgerechnet in " + base : ""}</td></tr></tfoot>
           </table>
-          <div class="row" style="padding:.7rem"><button class="btn primary sm" data-act="add">${ICON.plus} Ausgabe</button>
-            <label class="check small">Währung <input class="input" style="width:4em;padding:.2rem .4rem" data-act="waehrung" value="${esc(t.waehrung || "€")}"></label></div>
+          <div class="row" style="padding:.7rem"><button class="btn primary sm" data-act="add">${ICON.plus} Ausgabe</button></div>
         </div>
         <aside class="stack">
           <div class="card card-pad">
             <h3 class="section-title">Aufteilung</h3>
             <table class="bal">
-              <thead><tr><th></th><th class="n">bezahlt</th><th class="n">Anteil</th><th class="n">Saldo</th></tr></thead>
-              <tbody>${ids.map((id) => `<tr><td>${esc(pname(t, person(t, id)))}</td><td class="n">${money(t, b.paid[id])}</td><td class="n">${money(t, b.share[id])}</td><td class="n ${b.saldo[id] > 0.005 ? "pos" : b.saldo[id] < -0.005 ? "neg" : ""}">${b.saldo[id] > 0 ? "+" : ""}${money(t, b.saldo[id])}</td></tr>`).join("")}</tbody>
+              <thead><tr><th></th><th class="n">bezahlt</th><th class="n">Anteil</th><th class="n">offen</th></tr></thead>
+              <tbody>${ids.map((id) => `<tr><td>${esc(pname(t, person(t, id)))}</td><td class="n">${money(t, b.paid[id])}</td><td class="n">${money(t, b.share[id])}</td><td class="n ${b.saldo[id] > 0.005 ? "pos" : b.saldo[id] < -0.005 ? "neg" : ""}">${Math.abs(b.saldo[id]) < 0.005 ? "–" : (b.saldo[id] > 0 ? "+" : "") + money(t, b.saldo[id])}</td></tr>`).join("")}</tbody>
             </table>
             <h4 class="form-sub" style="margin-top:1rem">Ausgleich</h4>
-            ${b.transfers.length ? `<ul class="transfers">${b.transfers.map((x) => `<li><b>${esc(pname(t, person(t, x.von)))}</b> → <b>${esc(pname(t, person(t, x.an)))}</b><span>${money(t, x.betrag)}</span></li>`).join("")}</ul>` : `<p class="muted small">Alles ausgeglichen.</p>`}
-            <p class="hint" style="margin-top:.6rem">Jede Ausgabe wird gleichmäßig auf die Personen unter „Für wen“ verteilt.</p>
+            ${b.transfers.length ? `<ul class="transfers">${b.transfers.map((x) => `<li><span class="tr-who"><b>${esc(pname(t, person(t, x.von)))}</b> → <b>${esc(pname(t, person(t, x.an)))}</b></span><span>${money(t, x.betrag)}</span>
+                <button class="btn sm" data-settle="${x.von}:${x.an}:${Math.round(x.betrag * 100) / 100}" title="Als bezahlt markieren">Beglichen</button></li>`).join("")}</ul>`
+              : `<p class="muted small">${(t.kosten || []).length ? "✓ Alles beglichen." : "Noch nichts aufzuteilen."}</p>`}
+            ${(t.zahlungen || []).length ? `<h4 class="form-sub" style="margin-top:1rem">Beglichen</h4><ul class="transfers done">${[...t.zahlungen].sort((a, c) => (c.am || "").localeCompare(a.am || "")).map((z) => `<li><span class="tr-who">${esc(pname(t, person(t, z.von)))} → ${esc(pname(t, person(t, z.an)))}<small>${z.am ? fmtDate(z.am) : ""}</small></span><span>${money(t, num(z.betrag))}</span>
+                <button class="icon-btn" data-unsettle="${z.id}" aria-label="Rückgängig" title="Rückgängig">${ICONS.trash}</button></li>`).join("")}</ul>` : ""}
+            <p class="hint" style="margin-top:.6rem">Jede Ausgabe wird gleichmäßig auf die Personen unter „Für wen“ verteilt. „Beglichen“ trägt die Überweisung ein – danach ist der Betrag nicht mehr offen.</p>
+          </div>
+          <div class="card card-pad" id="waehrungen">
+            <h3 class="section-title">Währungen & Rechner</h3>
+            <label class="field small">Hauptwährung (darin wird abgerechnet)
+              <select class="input" data-act="basis">${WAEHRUNGEN.map((w) => `<option value="${w[0]}" ${w[0] === base ? "selected" : ""}>${w[0]} – ${w[2]}</option>`).join("")}</select></label>
+            ${curs.filter((c) => c !== base).map((c) => { const k = (t.kurse || {})[c] || {}; return `<div class="rate-row"><span>1 ${c} =</span><input class="input" data-rate="${c}" value="${k.r ? String(+(+k.r).toPrecision(6)).replace(".", ",") : ""}" inputmode="decimal" placeholder="Kurs"><span>${base}</span>
+              <small class="muted">${k.r ? `1 ${base} = ${fmtN(1 / k.r, 1 / k.r >= 100 ? 0 : 2)} ${c}${k.am ? " · " + (k.auto ? "Stand " : "eigener Kurs, ") + fmtDate(k.am) : ""}` : "noch kein Kurs"}</small>
+              ${(t.kosten || []).some((x) => kCode(t, x) === c) ? "" : `<button class="icon-btn" data-curdel="${c}" aria-label="${c} entfernen">${ICONS.trash}</button>`}</div>`; }).join("")}
+            <div class="row" style="gap:.4rem;margin:.6rem 0">
+              <select class="input" data-act="addcur" style="max-width:12rem"><option value="">+ Währung hinzufügen</option>${WAEHRUNGEN.filter((w) => !curs.includes(w[0])).map((w) => `<option value="${w[0]}">${w[0]} – ${w[2]}</option>`).join("")}</select>
+              ${curs.length > 1 ? `<button class="btn sm" data-act="kurse" ${navigator.onLine ? "" : "disabled"}>Aktuelle Kurse holen</button>` : ""}</div>
+            ${curs.length > 1 ? `<div class="rechner">
+              <input class="input" data-rc="betrag" value="${esc(rc.betrag)}" inputmode="decimal" aria-label="Betrag">
+              <select class="input" data-rc="von" aria-label="Währung">${curs.filter((c) => c !== base).map((c) => `<option ${c === rc.von ? "selected" : ""}>${c}</option>`).join("")}</select>
+              <span class="eq">=</span><b data-rc-out>${rateOf(t, rc.von) ? moneyIn(base, rcVal) : "–"}</b>
+              <small class="muted" data-rc-back>${rateOf(t, rc.von) ? `${moneyIn(base, num(rc.betrag))} = ${moneyIn(rc.von, num(rc.betrag) / rateOf(t, rc.von))}` : ""}</small>
+            </div>` : `<p class="hint">Füge eine Fremdwährung hinzu, um Ausgaben darin einzutragen und umzurechnen.</p>`}
           </div>
           ${Object.keys(byKat).length ? `<div class="card card-pad"><h3 class="section-title">Nach Kategorie</h3>
             <ul class="katlist">${Object.entries(byKat).sort((a, c) => c[1] - a[1]).map(([k, v]) => `<li><span>${esc(k)}</span><span class="bar"><i style="width:${total ? (v / total) * 100 : 0}%"></i></span><b>${money(t, v)}</b></li>`).join("")}</ul></div>` : ""}
         </aside>
       </div>`;
+  }
+  // Kurse von open.er-api.com (kostenlos, ohne Schlüssel)
+  async function fetchRates(t) {
+    const base = baseCode(t), want = tripCurrencies(t).filter((c) => c !== base);
+    if (!want.length) return;
+    try {
+      const r = await fetch(`https://open.er-api.com/v6/latest/${base}`); const d = await r.json();
+      if (d.result !== "success") throw new Error("keine Kurse");
+      t.kurse ||= {}; const day = C.todayISO(); const got = [];
+      want.forEach((c) => { const x = d.rates[c]; if (x) { t.kurse[c] = { r: Math.round((1 / x) * 1e8) / 1e8, am: day, auto: true }; got.push(c); } });
+      C.commit(); toast(got.length ? `Kurse aktualisiert: ${got.join(", ")}` : "Für diese Währungen gibt es keine Kurse – bitte selbst eintragen.");
+    } catch { toast("Kurse konnten gerade nicht geladen werden – du kannst sie auch selbst eintragen."); }
   }
   function onKostenClick(e) {
     const t = trip(); t.kosten ||= [];
@@ -1372,11 +1434,24 @@
       k.fuer = cur.length === all.length ? [] : cur;
       return C.commit();
     }
+    const st = e.target.closest("[data-settle]");
+    if (st) {
+      const [von, an, betrag] = st.dataset.settle.split(":");
+      (t.zahlungen ||= []).push({ id: uid() + uid(), von, an, betrag: +betrag, am: C.todayISO() });
+      toast(`${pname(t, person(t, von))} → ${pname(t, person(t, an))}: ${money(t, +betrag)} als beglichen eingetragen.`); return C.commit();
+    }
+    const us = e.target.closest("[data-unsettle]");
+    if (us) { if (!armed(us, "×?")) return; t.zahlungen = (t.zahlungen || []).filter((z) => z.id !== us.dataset.unsettle); return C.commit(); }
+    const cd = e.target.closest("[data-curdel]");
+    if (cd) { t.waehrungen = (t.waehrungen || []).filter((c) => c !== cd.dataset.curdel); return C.commit(); }
+    const ku = e.target.closest("[data-act=kurse]");
+    if (ku) { ku.disabled = true; return fetchRates(t); }
     const d = e.target.closest("[data-kdel]");
     if (d) { if (!armed(d, "×?")) return; t.kosten = t.kosten.filter((x) => x.id !== d.dataset.kdel); return C.commit(); }
     const a = e.target.closest("[data-act]");
     if (a && a.dataset.act === "add") {
-      t.kosten.push({ id: uid() + uid(), datum: C.todayISO(), betrag: "", grund: "", kat: "Sonstiges", von: C.myId(t) || t.personen[0].id, fuer: [] });
+      const last = [...t.kosten].reverse().find((x) => x.wae);
+      t.kosten.push({ id: uid() + uid(), datum: C.todayISO(), betrag: "", grund: "", kat: "Sonstiges", von: C.myId(t) || t.personen[0].id, fuer: [], ...(last && last.wae !== baseCode(t) ? { wae: last.wae } : {}) });
       C.commit();
       const rows = $$("[data-kc$=':grund']"); const k = t.kosten[t.kosten.length - 1];
       const inp = $(`[data-kc="${k.id}:betrag"]`); if (inp) inp.focus();
@@ -1385,12 +1460,35 @@
   }
   function onKostenChange(e) {
     const t = trip(); const el = e.target;
-    if (el.dataset.act === "waehrung") { t.waehrung = el.value.trim() || "€"; return C.commit(); }
+    if (el.dataset.act === "basis") {
+      const old = baseCode(t), nb = el.value; if (nb === old) return;
+      // Kurse auf die neue Hauptwährung umrechnen
+      const k = t.kurse ||= {}; const f = rateOf(t, nb);
+      if (!f && ((t.zahlungen || []).length || (t.kosten || []).length)) { el.value = old; return toast(`Bitte zuerst einen Kurs für ${nb} eintragen (unter „+ Währung hinzufügen“), dann umstellen.`); }
+      const neu = {}; if (f) { tripCurrencies(t).forEach((c) => { if (c !== nb) { const r = c === old ? 1 / f : rateOf(t, c) / f; if (r) neu[c] = { r: Math.round(r * 1e8) / 1e8, am: (k[c] || {}).am || C.todayISO(), auto: !!(k[c] || {}).auto }; } }); }
+      t.kurse = neu; t.waehrungen = [...new Set([...(t.waehrungen || []), old])].filter((c) => c !== nb);
+      (t.kosten || []).forEach((x) => { if (!x.wae) x.wae = old; if (x.wae === nb) delete x.wae; });
+      t.waehrung = nb === "EUR" ? "€" : nb;
+      // Bereits beglichene Beträge in die neue Währung umrechnen
+      (t.zahlungen || []).forEach((z) => { const r = f ? 1 / f : 0; if (r) z.betrag = Math.round(num(z.betrag) * r * 100) / 100; });
+      return C.commit();
+    }
+    if (el.dataset.act === "addcur") { const c = el.value; if (c) { t.waehrungen = [...new Set([...(t.waehrungen || []), c])]; C.commit(); if (navigator.onLine) fetchRates(t); } return; }
+    if (el.dataset.rate) {
+      const v = num(el.value); t.kurse ||= {};
+      if (v > 0) t.kurse[el.dataset.rate] = { r: v, am: C.todayISO(), auto: false }; else delete t.kurse[el.dataset.rate];
+      return C.commit();
+    }
+    if (el.dataset.rc) { (state.ui.rechner ||= {})[el.dataset.rc] = el.value; C.store.save(); return C.render(); }
     const c = el.dataset.kc; if (!c) return;
     const [kid, f] = c.split(":"); const k = t.kosten.find((x) => x.id === kid); if (!k) return;
     let v = el.value.trim();
     if (f === "datum") { const d = C.parseDE(v); if (d === null) { toast("Datum nicht erkannt – TT.MM.JJJJ"); return C.render(); } v = d; }
     if (f === "betrag") { v = v ? Math.round(num(v) * 100) / 100 : ""; }
+    if (f === "wae") {
+      if (v === "+") { el.value = kCode(t, k); $("#waehrungen [data-act=addcur]")?.focus(); return toast("Wähle rechts unter „Währungen & Rechner“ eine weitere Währung aus."); }
+      if (v === baseCode(t)) { delete k.wae; return C.commit(); }
+    }
     k[f] = v;
     C.commit();
   }
@@ -1879,12 +1977,12 @@
     // --- Kosten ---
     const wk = wb.addWorksheet("Kosten", { views: [{ state: "frozen", ySplit: 1 }] });
     wk.pageSetup = { paperSize: 9, orientation: "portrait", fitToPage: true, fitToWidth: 1, fitToHeight: 0 };
-    wk.columns = [{ header: "Datum", width: 12 }, { header: "Betrag", width: 12 }, { header: "Wofür", width: 34 }, { header: "Kategorie", width: 14 }, { header: "Bezahlt von", width: 16 }, { header: "Für wen", width: 28 }];
+    wk.columns = [{ header: "Datum", width: 12 }, { header: `Betrag (${baseCode(t)})`, width: 14 }, { header: "Wofür", width: 34 }, { header: "Kategorie", width: 14 }, { header: "Bezahlt von", width: 16 }, { header: "Für wen", width: 28 }, { header: "Original", width: 16 }];
     headStyle(wk.getRow(1));
     const cur = t.waehrung === "€" ? '#,##0.00 "€"' : `#,##0.00 "${t.waehrung}"`;
     [...(t.kosten || [])].sort((a, c) => (a.datum || "").localeCompare(c.datum || "")).forEach((k) => {
-      const row = wk.addRow([k.datum ? isoToDate(k.datum) : "", num(k.betrag), k.grund || "", k.kat || "", pname(t, person(t, k.von)) || "",
-        (k.fuer && k.fuer.length ? k.fuer : t.personen.map((p) => p.id)).map((id) => pname(t, person(t, id))).join(", ")]);
+      const row = wk.addRow([k.datum ? isoToDate(k.datum) : "", Math.round(inBase(t, k) * 100) / 100, k.grund || "", k.kat || "", pname(t, person(t, k.von)) || "",
+        (k.fuer && k.fuer.length ? k.fuer : t.personen.map((p) => p.id)).map((id) => pname(t, person(t, id))).join(", "), kCode(t, k) !== baseCode(t) ? moneyIn(kCode(t, k), num(k.betrag)) : ""]);
       row.getCell(1).numFmt = "dd.mm.yyyy"; row.getCell(2).numFmt = cur;
     });
     const kl = wk.rowCount;
@@ -1894,8 +1992,12 @@
     const wa = wb.addWorksheet("Abrechnung");
     const b = balances(t);
     wa.columns = [{ width: 18 }, { width: 14 }, { width: 14 }, { width: 14 }];
-    headStyle(wa.addRow(["Person", "Bezahlt", "Anteil", "Saldo"]));
+    headStyle(wa.addRow(["Person", "Bezahlt", "Anteil", "Offen"]));
     t.personen.forEach((p) => { const row = wa.addRow([pname(t, p), b.paid[p.id], b.share[p.id], b.saldo[p.id]]); [2, 3, 4].forEach((n) => { row.getCell(n).numFmt = cur; }); });
+    if ((t.zahlungen || []).length) {
+      wa.addRow([]); headStyle(wa.addRow(["Beglichen: von", "an", "Betrag", "am"]));
+      t.zahlungen.forEach((z) => { const row = wa.addRow([pname(t, person(t, z.von)), pname(t, person(t, z.an)), num(z.betrag), z.am ? isoToDate(z.am) : ""]); row.getCell(3).numFmt = cur; row.getCell(4).numFmt = "dd.mm.yyyy"; });
+    }
     wa.addRow([]);
     headStyle(wa.addRow(["Ausgleich: von", "an", "Betrag"]));
     b.transfers.forEach((x) => { const row = wa.addRow([pname(t, person(t, x.von)), pname(t, person(t, x.an)), x.betrag]); row.getCell(3).numFmt = cur; });
@@ -2023,7 +2125,7 @@
   // =========================================================
   PL.views = { urlaube: renderUrlaube, plan: renderPlan, unterwegs: renderUnterwegs, kosten: renderKosten, einstellungen: renderSettings };
   PL.U = { partsOf, withMe, groupName, cfgFor, isShared, syncAll, putBlob, getBlob, dropBlob, offlineState, whoAmI, planStats, TYPEN, typName, dayLabel, dateOf,
-    ensurePlan, durMin, fmtDur, num, fmtNum, money, ICONS, online, openDay, tripBadge, fmtSize, plain, firstLine, richHtml };
+    ensurePlan, durMin, fmtDur, num, fmtNum, money, inBase, ICONS, online, openDay, tripBadge, fmtSize, plain, firstLine, richHtml };
   PL.init = () => {
     // leere, unbenannte Urlaube (z. B. automatisch angelegt von der alten Packliste) entfernen
     const isEmpty = (t) => !(t.name || "").trim() && !(t.ziel || "").trim() && !t.von && !(t.kosten || []).length && !(t.tickets || []).length
