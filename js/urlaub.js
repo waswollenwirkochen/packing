@@ -1355,13 +1355,14 @@
       <div class="kosten-layout">
         <div class="card sheet-wrap">
           <table class="sheet kosten">
-            <thead><tr><th style="width:8.6em">Datum</th><th class="n" style="width:12em">Betrag</th><th>Wofür</th><th style="width:9.5em">Kategorie</th><th style="width:8em">Bezahlt von</th><th style="width:11em">Für wen</th><th style="width:5.6em" class="c" title="Anteile schon untereinander ausgeglichen">Beglichen</th><th style="width:2.5em"></th></tr></thead>
+            <colgroup><col style="width:6.9em"><col style="width:9.4em"><col class="c-wofuer"><col style="width:8.4em"><col style="width:6.8em"><col style="width:8.6em"><col style="width:6.2em"><col style="width:2.6em"></colgroup>
+            <thead><tr><th>Datum</th><th class="n">Betrag</th><th>Wofür</th><th>Kategorie</th><th>Bezahlt von</th><th>Für wen</th><th class="c th-settle" title="Anteile schon untereinander ausgeglichen">Beglichen</th><th></th></tr></thead>
             <tbody>${sorted.map((k) => { const kc = kCode(t, k), foreign = kc !== base; return `<tr data-k="${k.id}" class="${k.beglichen ? "settled" : ""}">
               <td><input data-kc="${k.id}:datum" value="${C.toDE(k.datum || "")}" placeholder="TT.MM.JJJJ" inputmode="numeric"></td>
               <td class="n"><div class="amt"><input data-kc="${k.id}:betrag" value="${k.betrag != null && k.betrag !== "" ? String(k.betrag).replace(".", ",") : ""}" inputmode="decimal" placeholder="0,00" aria-label="Betrag">
                 <select data-kc="${k.id}:wae" class="cur-sel" aria-label="Währung">${curOpts(kc)}</select></div>
                 ${foreign && num(k.betrag) ? `<div class="conv">${rateOf(t, kc) ? "≈ " + money(t, inBase(t, k)) : "Kurs fehlt"}</div>` : ""}</td>
-              <td><input data-kc="${k.id}:grund" value="${esc(k.grund || "")}" placeholder="z. B. Hotel Lyon"></td>
+              <td><input data-kc="${k.id}:grund" value="${esc(k.grund || "")}" placeholder="z. B. Hotel Lyon" title="${esc(k.grund || "")}"></td>
               <td><select data-kc="${k.id}:kat">${KATEGORIEN.map((x) => `<option ${x === (k.kat || "Sonstiges") ? "selected" : ""}>${x}</option>`).join("")}</select></td>
               <td><select data-kc="${k.id}:von"><option value="">–</option>${t.personen.map((p) => `<option value="${p.id}" ${p.id === k.von ? "selected" : ""}>${esc(pname(t, p))}</option>`).join("")}</select></td>
               <td><div class="fuer">${t.personen.map((p) => { const on = !k.fuer || !k.fuer.length || k.fuer.includes(p.id); return `<button class="chip chip-s ${on ? "on" : ""}" data-fuer="${k.id}:${p.id}" aria-pressed="${on}">${esc(pname(t, p))}</button>`; }).join("")}</div></td>
