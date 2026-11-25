@@ -918,3 +918,7 @@ blockquote cite { display: block; font-size: .8rem; color: var(--ink-3); font-st
 .uw-rc { margin-bottom: .8rem; }
 .tc-sec p { white-space: normal; }
 .day-sum { padding: .6rem .8rem; background: var(--paper, #f4eee1); border-radius: 10px; margin-bottom: .8rem; line-height: 1.45; }
+/* lange Links und Wörter umbrechen statt überlappen */
+.rc-grid > *, .uw-body, .tc-sec { min-width: 0; }
+.tc-sec p, .day-sum, .rich { overflow-wrap: anywhere; word-break: break-word; }
+.ext-link { color: var(--forest, #2f5241); text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); }

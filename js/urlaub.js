@@ -45,7 +45,8 @@
     { k: "runter", h: "↓ m", ph: "", w: 4.5, num: true },
     { k: "highlights", h: "Highlights", ph: "", w: 14, rich: true },
     { k: "unterkunft", h: "Unterkunft", ph: "", w: 13, rich: true },
-    { k: "tour", h: "Wanderung", ph: "outdooractive-Link", w: 13, link: true }
+    { k: "tour", h: "Wanderung", ph: "outdooractive-Link", w: 13, link: true },
+    { k: "notizen", h: "Hinweise & Sonstiges", ph: "", w: 15, rich: true }
   ];
   // Recherche-Kasten unter der Tabelle (für die ganze Reise)
   const RECHERCHE = [
@@ -58,6 +59,19 @@
   // ---------- Fett & kursiv: gespeichert als **fett** / *kursiv*, angezeigt formatiert ----------
   const mdInline = (x) => esc(x).replace(/\*\*(\S(?:[^*]*?\S)?)\*\*/g, "<b>$1</b>").replace(/(^|[^*])\*(\S(?:[^*]*?\S)?)\*(?!\*)/g, "$1<i>$2</i>");
   const richHtml = (md) => String(md || "").split("\n").map(mdInline).join("<br>");
+  // Anzeige (nicht zum Bearbeiten): lange Links werden zu kurzen, anklickbaren Namen
+  const linkLabel = (raw) => {
+    try {
+      const u = new URL(raw), host = u.hostname.replace(/^www\./, "");
+      const seg = u.pathname.split("/").filter((x) => /[a-z]{3}/i.test(x)).map((x) => decodeURIComponent(x).replace(/\.(html?|php)$/i, "").replace(/\.[a-z]{2}-[a-z]{2}$/i, ""))
+        .sort((a, b) => (b.match(/-/g) || []).length - (a.match(/-/g) || []).length)[0];
+      const name = seg && seg.includes("-") ? seg.replace(/[-_]+/g, " ") : "";
+      const lab = name ? `${host} · ${name}` : host + (u.pathname.length > 1 ? "/…" : "");
+      return lab.length > 70 ? lab.slice(0, 68) + "…" : lab;
+    } catch { return raw.length > 60 ? raw.slice(0, 58) + "…" : raw; }
+  };
+  const unesc = (x) => x.replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+  const showHtml = (md) => richHtml(md).replace(/https?:\/\/[^\s<]+[^\s<.,;:!?)\]]/g, (m) => `<a href="${m}" target="_blank" rel="noopener" class="ext-link">${esc(linkLabel(unesc(m)))}</a>`);
   const plain = (md) => String(md || "").replace(/\*\*(.+?)\*\*/g, "$1").replace(/(^|[^*])\*(.+?)\*/g, "$1$2");
   const firstLine = (md) => plain(String(md || "").split("\n")[0]);
   function nodeMd(n, b, i) {
@@ -158,10 +172,10 @@
   const rowEmpty = (r) => !FIELDS.some((f) => String(r[f.k] ?? "").trim()) && !r.typ && !r.hinweise && !r.sonstiges;
   function ensurePlan(t) {
     t.plan ||= [];
-    // „Hinweise“ und „Sonstiges“ gibt es nicht mehr: Inhalte wandern als eigene Zeilen ins Programm
+    // alte Spalten „Hinweise“ und „Sonstiges“ → gemeinsame Spalte „Hinweise & Sonstiges“
     t.plan.forEach((r) => {
       if (!r.hinweise && !r.sonstiges) return;
-      r.titel = [r.titel, r.hinweise, r.sonstiges].filter((x) => String(x || "").trim()).join("\n");
+      r.notizen = [r.notizen, r.hinweise, r.sonstiges].filter((x) => String(x || "").trim()).join("\n");
       delete r.hinweise; delete r.sonstiges;
     });
     while (t.plan.length < t.tage) t.plan.push({ id: uid() + uid(), typ: "" });
@@ -899,7 +913,8 @@
           </div>
           <label class="dc-l">Highlights</label>${richBox(r.id + ":highlights", r.highlights, "Was darf man nicht verpassen?", "Highlights – " + dayLabel(t, i))}
           <label class="dc-l">Unterkunft</label>${richBox(r.id + ":unterkunft", r.unterkunft, "Name, Adresse, Check-in …", "Unterkunft – " + dayLabel(t, i))}
-          <label class="dc-l">Wanderung</label>${tourCell(r, dayLabel(t, i))}`}
+          <label class="dc-l">Wanderung</label>${tourCell(r, dayLabel(t, i))}
+          <label class="dc-l">Hinweise & Sonstiges</label>${richBox(r.id + ":notizen", r.notizen, "z. B. Fahrtag, Reservierung nötig, Supermarkt am Ziel …", "Hinweise & Sonstiges – " + dayLabel(t, i))}`}
         </div>`;
       }).join("")}</div>`;
     } else {
@@ -920,7 +935,7 @@
           </tr>`;
         }).join("")}</tbody>
         <tfoot><tr><th class="sticky-col">Summe</th><td></td><td colspan="3" class="muted small">${s.wTage} Wandertage · ${fmtDur(s.wMin)} Gehzeit</td>
-          <td class="n" data-sum="km">${fmtNum(s.wKm + s.fKm, 1)}</td><td></td><td class="n" data-sum="hoch">${fmtNum(s.hoch)}</td><td class="n" data-sum="runter">${fmtNum(s.runter)}</td><td colspan="4"></td></tr></tfoot>
+          <td class="n" data-sum="km">${fmtNum(s.wKm + s.fKm, 1)}</td><td></td><td class="n" data-sum="hoch">${fmtNum(s.hoch)}</td><td class="n" data-sum="runter">${fmtNum(s.runter)}</td><td colspan="5"></td></tr></tfoot>
       </table></div>`;
     }
     // Recherche-Kasten: Empfehlungen, wichtige Infos, Unterkünfte, Essen
@@ -1021,7 +1036,7 @@
     const i = t.plan.findIndex((r) => r.id === rid); const r = t.plan[i]; if (!r) return;
     openModal({
       title: `${dayLabel(t, i, true)} · Tag ${i + 1}`, wide: true,
-      body: `${r.titel ? `<div class="day-sum">${richHtml(r.titel)}</div>` : ""}
+      body: `${r.titel ? `<div class="day-sum">${showHtml(r.titel)}</div>` : ""}
       <h4 class="form-sub">Tickets & Unterlagen für diesen Tag</h4>
       <div id="dayFiles" data-drop="${rid}">${filesHtml(t, rid)}</div>
       ${PL.gpx ? `<h4 class="form-sub" style="margin-top:1rem">GPX-Track (z. B. aus Outdooractive)</h4><div id="dayGpx">${PL.gpx.rowHtml(t, rid)}</div>
@@ -1119,13 +1134,14 @@
     return `<div class="uw-body">
       ${route ? `<div class="tc-route">${esc(route)}</div>` : ""}
       ${facts.length ? `<div class="tc-facts">${facts.map((x) => `<span>${esc(x)}</span>`).join("")}</div>` : ""}
-      ${more ? `<div class="tc-sec"><h4>Programm</h4><p>${richHtml(r.titel)}</p></div>` : ""}
+      ${more ? `<div class="tc-sec"><h4>Programm</h4><p>${showHtml(r.titel)}</p></div>` : ""}
       ${track || tourUrl || r.tour ? `<div class="tc-sec"><h4>Wanderung</h4><div class="row" style="gap:.4rem">
         ${track ? `<button class="btn sm primary" data-gpxdl="${track.id}">GPX herunterladen</button><a class="btn sm" href="#karte" data-mapday="${r.id}">${ICONS.map} Auf der Karte</a>` : ""}
         ${tourUrl ? `<a class="btn sm" href="${esc(tourUrl)}" target="_blank" rel="noopener">Tour bei outdooractive</a>` : r.tour ? `<span>${esc(r.tour)}</span>` : ""}</div>
         ${track ? `<p class="small muted" style="margin:.35rem 0 0">${esc(track.name)}</p>` : ""}</div>` : ""}
-      ${r.highlights ? `<div class="tc-sec"><h4>Highlights</h4><p>${richHtml(r.highlights)}</p></div>` : ""}
-      ${r.unterkunft ? `<div class="tc-sec"><h4>Unterkunft</h4><p>${richHtml(r.unterkunft)} <a class="map-link" href="${maps(plain(r.unterkunft).split("\n")[0] + " " + (r.nach || t.ziel || ""))}" target="_blank" rel="noopener">${ICONS.map} Karte</a></p></div>` : ""}
+      ${r.highlights ? `<div class="tc-sec"><h4>Highlights</h4><p>${showHtml(r.highlights)}</p></div>` : ""}
+      ${r.unterkunft ? `<div class="tc-sec"><h4>Unterkunft</h4><p>${showHtml(r.unterkunft)} <a class="map-link" href="${maps(plain(r.unterkunft).split("\n")[0] + " " + (r.nach || t.ziel || ""))}" target="_blank" rel="noopener">${ICONS.map} Karte</a></p></div>` : ""}
+      ${r.notizen ? `<div class="tc-sec"><h4>Hinweise & Sonstiges</h4><p>${showHtml(r.notizen)}</p></div>` : ""}
       <div class="tc-sec"><h4>Tickets & Unterlagen</h4>${filesHtml(t, r.id)}</div>
       <div class="row" style="margin-top:.6rem"><button class="btn sm" data-act="edit" data-id="${r.id}">${ICON.edit} Tag bearbeiten</button></div>
     </div>`;
@@ -1137,7 +1153,7 @@
     const open = state.ui.rcOpen !== false;
     return `<section class="card card-pad uw-rc">
       <button class="uw-rc-head" data-act="rc-toggle" aria-expanded="${open}"><h3 class="section-title">Empfehlungen & wichtige Infos</h3><span class="chev">${open ? "▴" : "▾"}</span></button>
-      ${open ? `<div class="rc-grid ro">${parts.map((f) => `<div class="tc-sec"><h4>${f.h}</h4><p>${richHtml(rc[f.k])}</p></div>`).join("")}</div>
+      ${open ? `<div class="rc-grid ro">${parts.map((f) => `<div class="tc-sec"><h4>${f.h}</h4><p>${showHtml(rc[f.k])}</p></div>`).join("")}</div>
       <p class="small muted" style="margin:.5rem 0 0">Bearbeiten in der <a href="#plan">Planung</a>.</p>` : ""}
     </section>`;
   }
@@ -1799,13 +1815,13 @@
     ws.mergeCells("A1:H1"); ws.getCell("A1").value = tripName(t); ws.getCell("A1").font = { bold: true, size: 16, color: { argb: GREEN } };
     ws.mergeCells("A2:H2"); ws.getCell("A2").value = [t.ziel, t.von ? `${C.toDE(t.von)} – ${C.toDE(t.bis)}` : "", `${t.tage} Tage`, people].filter(Boolean).join("  ·  ");
     ws.getCell("A2").font = { color: { argb: "FF56645B" } };
-    const cols = [["Datum", 12], ["Wochentag", 11], ["Art", 11], ["Programm", 28], ["Von", 18], ["Nach", 18], ["km", 7], ["Dauer", 8], ["Aufstieg (m)", 10], ["Abstieg (m)", 10], ["Highlights", 28], ["Unterkunft", 24], ["Wanderung", 28], ["Unterlagen", 20]];
+    const cols = [["Datum", 12], ["Wochentag", 11], ["Art", 11], ["Programm", 28], ["Von", 18], ["Nach", 18], ["km", 7], ["Dauer", 8], ["Aufstieg (m)", 10], ["Abstieg (m)", 10], ["Highlights", 28], ["Unterkunft", 24], ["Wanderung", 28], ["Hinweise & Sonstiges", 28], ["Unterlagen", 20]];
     ws.columns = cols.map(([h, w]) => ({ width: w }));
     const hr = ws.getRow(4); hr.values = cols.map((c) => c[0]); headStyle(hr);
     t.plan.slice(0, t.tage).forEach((r, i) => {
       const iso = dateOf(t, i);
       const row = ws.addRow([iso ? isoToDate(iso) : `Tag ${i + 1}`, iso ? fmtDate(iso, { weekday: "long" }) : "", typName(r.typ || "").replace("–", ""), plain(r.titel), r.von || "", r.nach || "",
-        r.km ? num(r.km) : null, r.dauer || "", r.hoch ? num(r.hoch) : null, r.runter ? num(r.runter) : null, plain(r.highlights), plain(r.unterkunft), r.tour || "",
+        r.km ? num(r.km) : null, r.dauer || "", r.hoch ? num(r.hoch) : null, r.runter ? num(r.runter) : null, plain(r.highlights), plain(r.unterkunft), r.tour || "", plain(r.notizen),
         (t.tickets || []).filter((f) => f.tag === r.id).map((f) => f.name).join(", ")]);
       if (iso) row.getCell(1).numFmt = "dd.mm.yyyy";
       row.alignment = { vertical: "top", wrapText: true };
@@ -1814,7 +1830,7 @@
     const last = 4 + t.tage;
     const sum = ws.addRow(["Summe", "", "", "", "", "", { formula: `SUM(G5:G${last})` }, "", { formula: `SUM(I5:I${last})` }, { formula: `SUM(J5:J${last})` }]);
     sum.font = { bold: true }; sum.eachCell((c) => { c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: PAPER } }; });
-    ws.autoFilter = { from: "A4", to: `N${last}` };
+    ws.autoFilter = { from: "A4", to: `O${last}` };
     ws.pageSetup = { paperSize: 9, orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0, printTitlesRow: "4:4", margins: { left: 0.4, right: 0.4, top: 0.5, bottom: 0.5, header: 0.2, footer: 0.2 } };
     ws.headerFooter = { oddFooter: `&L${tripName(t).replace(/&/g, "&&")}&RSeite &P von &N` };
     // --- Recherche ---
@@ -1954,7 +1970,7 @@
     days.forEach((d) => {
       const i = t.von ? C.dayDiff(t.von, d.iso) : -1; const r = t.plan[i]; if (!r) return;
       ["typ", "titel", "von", "nach", "km", "dauer", "hoch", "runter", "unterkunft"].forEach((k) => { if (d[k]) r[k] = d[k]; });
-      const extra = [d.hinweise, d.sonstiges].filter(Boolean); if (extra.length) r.titel = [r.titel, ...extra].filter(Boolean).join("\n");
+      const extra = [d.hinweise, d.sonstiges].filter(Boolean); if (extra.length) r.notizen = extra.join("\n");
     });
     const pid = (n) => (t.personen.find((p) => p.name.toLowerCase() === n.toLowerCase()) || {}).id;
     t.kosten = costs.map((k) => {
