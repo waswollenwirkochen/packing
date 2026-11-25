@@ -954,3 +954,7 @@ blockquote cite { display: block; font-size: .8rem; color: var(--ink-3); font-st
 .transfers.done li { color: var(--ink-3); }
 .warn-box { margin-bottom: .8rem; border-left: 0; background: color-mix(in srgb, var(--sun, #e8b34a) 18%, #fff); display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; }
 .transfers .tr-who { margin-left: 0; font-weight: 400; }
+.kosten tr.settled td:not(:nth-last-child(-n+2)) { opacity: .55; }
+.settle-chk { display: inline-flex; flex-direction: column; align-items: center; gap: 1px; cursor: pointer; padding: .3rem 0; }
+.settle-chk input { width: 18px; height: 18px; accent-color: var(--forest, #2f5241); cursor: pointer; }
+.settle-chk span { font-size: .66rem; color: var(--forest, #2f5241); font-weight: 600; }

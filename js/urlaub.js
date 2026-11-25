@@ -1313,7 +1313,7 @@
     const ids = t.personen.map((p) => p.id);
     const paid = {}, share = {}; ids.forEach((id) => { paid[id] = 0; share[id] = 0; });
     (t.kosten || []).forEach((k) => {
-      const b = inBase(t, k); if (!b) return;
+      const b = inBase(t, k); if (!b || k.beglichen) return; // beglichen: Anteile sind schon ausgeglichen
       const fuer = (k.fuer && k.fuer.length ? k.fuer : ids).filter((x) => ids.includes(x));
       if (k.von && paid[k.von] != null) paid[k.von] += b;
       fuer.forEach((x) => { share[x] += b / (fuer.length || 1); });
@@ -1355,8 +1355,8 @@
       <div class="kosten-layout">
         <div class="card sheet-wrap">
           <table class="sheet kosten">
-            <thead><tr><th style="width:8.6em">Datum</th><th class="n" style="width:12em">Betrag</th><th>Wofür</th><th style="width:9.5em">Kategorie</th><th style="width:8em">Bezahlt von</th><th style="width:11em">Für wen</th><th style="width:2.5em"></th></tr></thead>
-            <tbody>${sorted.map((k) => { const kc = kCode(t, k), foreign = kc !== base; return `<tr data-k="${k.id}">
+            <thead><tr><th style="width:8.6em">Datum</th><th class="n" style="width:12em">Betrag</th><th>Wofür</th><th style="width:9.5em">Kategorie</th><th style="width:8em">Bezahlt von</th><th style="width:11em">Für wen</th><th style="width:5.6em" class="c" title="Anteile schon untereinander ausgeglichen">Beglichen</th><th style="width:2.5em"></th></tr></thead>
+            <tbody>${sorted.map((k) => { const kc = kCode(t, k), foreign = kc !== base; return `<tr data-k="${k.id}" class="${k.beglichen ? "settled" : ""}">
               <td><input data-kc="${k.id}:datum" value="${C.toDE(k.datum || "")}" placeholder="TT.MM.JJJJ" inputmode="numeric"></td>
               <td class="n"><div class="amt"><input data-kc="${k.id}:betrag" value="${k.betrag != null && k.betrag !== "" ? String(k.betrag).replace(".", ",") : ""}" inputmode="decimal" placeholder="0,00" aria-label="Betrag">
                 <select data-kc="${k.id}:wae" class="cur-sel" aria-label="Währung">${curOpts(kc)}</select></div>
@@ -1365,9 +1365,10 @@
               <td><select data-kc="${k.id}:kat">${KATEGORIEN.map((x) => `<option ${x === (k.kat || "Sonstiges") ? "selected" : ""}>${x}</option>`).join("")}</select></td>
               <td><select data-kc="${k.id}:von"><option value="">–</option>${t.personen.map((p) => `<option value="${p.id}" ${p.id === k.von ? "selected" : ""}>${esc(pname(t, p))}</option>`).join("")}</select></td>
               <td><div class="fuer">${t.personen.map((p) => { const on = !k.fuer || !k.fuer.length || k.fuer.includes(p.id); return `<button class="chip chip-s ${on ? "on" : ""}" data-fuer="${k.id}:${p.id}" aria-pressed="${on}">${esc(pname(t, p))}</button>`; }).join("")}</div></td>
+              <td class="c"><label class="settle-chk" title="Anteile schon ausgeglichen – zählt nicht mehr zum offenen Betrag"><input type="checkbox" data-kc="${k.id}:beglichen" ${k.beglichen ? "checked" : ""} aria-label="Beglichen"><span>${k.beglichen ? "beglichen" : ""}</span></label></td>
               <td class="c"><button class="icon-btn" data-kdel="${k.id}" aria-label="Ausgabe löschen">${ICONS.trash}</button></td>
-            </tr>`; }).join("") || `<tr><td colspan="7" class="muted" style="padding:1rem">Noch keine Ausgaben eingetragen.</td></tr>`}</tbody>
-            <tfoot><tr><th>Summe</th><td class="n"><b>${money(t, total)}</b></td><td colspan="5" class="muted small">${curs.length > 1 ? "alles umgerechnet in " + base : ""}</td></tr></tfoot>
+            </tr>`; }).join("") || `<tr><td colspan="8" class="muted" style="padding:1rem">Noch keine Ausgaben eingetragen.</td></tr>`}</tbody>
+            <tfoot><tr><th>Summe</th><td class="n"><b>${money(t, total)}</b></td><td colspan="6" class="muted small">${curs.length > 1 ? "alles umgerechnet in " + base : ""}</td></tr></tfoot>
           </table>
           <div class="row" style="padding:.7rem"><button class="btn primary sm" data-act="add">${ICON.plus} Ausgabe</button></div>
         </div>
@@ -1384,7 +1385,7 @@
               : `<p class="muted small">${(t.kosten || []).length ? "✓ Alles beglichen." : "Noch nichts aufzuteilen."}</p>`}
             ${(t.zahlungen || []).length ? `<h4 class="form-sub" style="margin-top:1rem">Beglichen</h4><ul class="transfers done">${[...t.zahlungen].sort((a, c) => (c.am || "").localeCompare(a.am || "")).map((z) => `<li><span class="tr-who">${esc(pname(t, person(t, z.von)))} → ${esc(pname(t, person(t, z.an)))}<small>${z.am ? fmtDate(z.am) : ""}</small></span><span>${money(t, num(z.betrag))}</span>
                 <button class="icon-btn" data-unsettle="${z.id}" aria-label="Rückgängig" title="Rückgängig">${ICONS.trash}</button></li>`).join("")}</ul>` : ""}
-            <p class="hint" style="margin-top:.6rem">Jede Ausgabe wird gleichmäßig auf die Personen unter „Für wen“ verteilt. „Beglichen“ trägt die Überweisung ein – danach ist der Betrag nicht mehr offen.</p>
+            <p class="hint" style="margin-top:.6rem">Jede Ausgabe wird gleichmäßig auf die Personen unter „Für wen“ verteilt. Ein Häkchen bei „Beglichen“ in der Tabelle heißt: Die Anteile dieser Ausgabe sind schon ausgeglichen – sie zählt weiter zu den Gesamtkosten, aber nicht mehr zum offenen Betrag.</p>
           </div>
           <div class="card card-pad" id="waehrungen">
             <h3 class="section-title">Währungen & Rechner</h3>
@@ -1482,6 +1483,7 @@
     if (el.dataset.rc) { (state.ui.rechner ||= {})[el.dataset.rc] = el.value; C.store.save(); return C.render(); }
     const c = el.dataset.kc; if (!c) return;
     const [kid, f] = c.split(":"); const k = t.kosten.find((x) => x.id === kid); if (!k) return;
+    if (f === "beglichen") { if (el.checked) k.beglichen = C.todayISO(); else delete k.beglichen; return C.commit(); }
     let v = el.value.trim();
     if (f === "datum") { const d = C.parseDE(v); if (d === null) { toast("Datum nicht erkannt – TT.MM.JJJJ"); return C.render(); } v = d; }
     if (f === "betrag") { v = v ? Math.round(num(v) * 100) / 100 : ""; }
@@ -1977,12 +1979,12 @@
     // --- Kosten ---
     const wk = wb.addWorksheet("Kosten", { views: [{ state: "frozen", ySplit: 1 }] });
     wk.pageSetup = { paperSize: 9, orientation: "portrait", fitToPage: true, fitToWidth: 1, fitToHeight: 0 };
-    wk.columns = [{ header: "Datum", width: 12 }, { header: `Betrag (${baseCode(t)})`, width: 14 }, { header: "Wofür", width: 34 }, { header: "Kategorie", width: 14 }, { header: "Bezahlt von", width: 16 }, { header: "Für wen", width: 28 }, { header: "Original", width: 16 }];
+    wk.columns = [{ header: "Datum", width: 12 }, { header: `Betrag (${baseCode(t)})`, width: 14 }, { header: "Wofür", width: 34 }, { header: "Kategorie", width: 14 }, { header: "Bezahlt von", width: 16 }, { header: "Für wen", width: 28 }, { header: "Original", width: 16 }, { header: "Beglichen", width: 11 }];
     headStyle(wk.getRow(1));
     const cur = t.waehrung === "€" ? '#,##0.00 "€"' : `#,##0.00 "${t.waehrung}"`;
     [...(t.kosten || [])].sort((a, c) => (a.datum || "").localeCompare(c.datum || "")).forEach((k) => {
       const row = wk.addRow([k.datum ? isoToDate(k.datum) : "", Math.round(inBase(t, k) * 100) / 100, k.grund || "", k.kat || "", pname(t, person(t, k.von)) || "",
-        (k.fuer && k.fuer.length ? k.fuer : t.personen.map((p) => p.id)).map((id) => pname(t, person(t, id))).join(", "), kCode(t, k) !== baseCode(t) ? moneyIn(kCode(t, k), num(k.betrag)) : ""]);
+        (k.fuer && k.fuer.length ? k.fuer : t.personen.map((p) => p.id)).map((id) => pname(t, person(t, id))).join(", "), kCode(t, k) !== baseCode(t) ? moneyIn(kCode(t, k), num(k.betrag)) : "", k.beglichen ? "✓" : ""]);
       row.getCell(1).numFmt = "dd.mm.yyyy"; row.getCell(2).numFmt = cur;
     });
     const kl = wk.rowCount;
