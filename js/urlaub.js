@@ -96,7 +96,40 @@
     return out;
   }
   const htmlToMd = (el) => nodeMd(el, false, false).replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").replace(/^\n+|\s+$/g, "");
-  const richBox = (key, md, ph, label, cls = "") => `<div class="rich ${cls}" contenteditable="true" spellcheck="true" role="textbox" aria-multiline="true" aria-label="${esc(label)}" data-rich="${key}" data-ph="${esc(ph || "")}">${richHtml(md)}</div>`;
+  // Ansicht: gekürzte Links, Höhe begrenzt (ausklappbar). Erst beim Antippen wird das Feld zum Bearbeiten geöffnet.
+  const richBox = (key, md, ph, label, cls = "") => `<div class="rich clamp ${cls}" tabindex="0" spellcheck="true" role="textbox" aria-multiline="true" aria-label="${esc(label)}" data-rich="${key}" data-ph="${esc(ph || "")}" data-md="${esc(md || "")}">${showHtml(md)}</div>${/\bcell\b/.test(cls) ? "" : `<button type="button" class="rich-more" data-richmore hidden>mehr anzeigen</button>`}`;
+  function markOver(root) {
+    (root || document).querySelectorAll(".rich.clamp").forEach((el) => {
+      if (el.classList.contains("editing")) return;
+      const open = el.classList.contains("open");
+      const ov = open || el.scrollHeight > el.clientHeight + 2;
+      el.classList.toggle("over", ov && !open);
+      const b = el.nextElementSibling;
+      if (b && b.matches(".rich-more")) { b.hidden = !ov; b.textContent = open ? "weniger anzeigen" : "mehr anzeigen"; }
+    });
+  }
+  function startEdit(el) {
+    if (el.classList.contains("editing")) return;
+    el.classList.add("editing"); el.contentEditable = "true";
+    el.innerHTML = richHtml(el.dataset.md || "");
+    const b = el.nextElementSibling; if (b && b.matches(".rich-more")) b.hidden = true;
+    const caret = () => { const r = document.createRange(); r.selectNodeContents(el); r.collapse(false); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); };
+    caret();
+    // erst nach dem aktuellen Ereignis ist das Feld wirklich editierbar: erneut fokussieren
+    setTimeout(() => { if (!el.classList.contains("editing")) return; if (document.activeElement !== el) el.focus(); if (!el.contains(getSelection().anchorNode)) caret(); }, 0);
+  }
+  function endEdit(el) {
+    el.classList.remove("editing"); el.removeAttribute("contenteditable");
+    el.innerHTML = showHtml(el.dataset.md || "");
+    markOver(el.parentElement);
+  }
+  // Link in der Ansicht antippen öffnet ihn, statt das Feld zu bearbeiten
+  document.addEventListener("mousedown", (e) => { const a = e.target.closest && e.target.closest(".rich:not(.editing) a"); if (a) e.preventDefault(); });
+  document.addEventListener("click", (e) => {
+    const m = e.target.closest && e.target.closest("[data-richmore]"); if (!m) return;
+    const el = m.previousElementSibling; if (!el) return;
+    el.classList.toggle("open"); markOver(el.parentElement);
+  });
   // Formatierungsleiste (F / K) über dem gerade bearbeiteten Feld
   const richBar = document.createElement("div");
   richBar.className = "rich-bar"; richBar.hidden = true;
@@ -115,18 +148,18 @@
   function saveRich(el) {
     const key = el.dataset.rich; if (!key) return;
     const t = trip(); if (!t) return;
-    const md = htmlToMd(el);
+    if (!el.classList.contains("editing")) return;
+    const md = htmlToMd(el); el.dataset.md = md;
     const [a, k] = key.split(":");
     const obj = a === "R" ? (t.recherche ||= {}) : t.plan.find((x) => x.id === a);
     if (!obj || (obj[k] || "") === md) return;
     if (md) obj[k] = md; else delete obj[k];
     C.save();
   }
-  document.addEventListener("focusin", (e) => { const el = e.target.closest && e.target.closest(".rich"); if (el) { richEl = el; placeBar(); } });
+  document.addEventListener("focusin", (e) => { const el = e.target.closest && e.target.closest(".rich"); if (el) { startEdit(el); richEl = el; placeBar(); } });
   document.addEventListener("focusout", (e) => {
     const el = e.target.closest && e.target.closest(".rich"); if (!el) return;
-    clearTimeout(richTimer); saveRich(el);
-    if (!el.textContent.trim()) el.innerHTML = "";
+    clearTimeout(richTimer); saveRich(el); endEdit(el);
     setTimeout(() => { if (!document.activeElement || !document.activeElement.closest(".rich")) { richEl = null; richBar.hidden = true; } }, 0);
   });
   document.addEventListener("input", (e) => { const el = e.target.closest && e.target.closest(".rich"); if (!el) return; clearTimeout(richTimer); richTimer = setTimeout(() => saveRich(el), 900); placeBar(); });
@@ -954,6 +987,7 @@
       </div>
       ${extra ? `<p class="hint">Der Zeitraum ist kürzer als der Plan – Tage nach Reiseende sind grau markiert und können gelöscht werden.</p>` : ""}
       ${body}`;
+    requestAnimationFrame(() => markOver(el));
   }
 
   function onPlanClick(e) {
