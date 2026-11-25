@@ -94,9 +94,10 @@
     t.plan.slice(0, t.tage).forEach((r, i) => {
       const lastDay = i === t.tage - 1;
       let von = r.von, nach = r.nach;
-      if (!von && !nach && r.titel && ARROW.test(r.titel)) [von, nach] = r.titel.split(ARROW);
+      const tt = String(r.titel || "").split("\n")[0].replace(/\*/g, "").trim();
+      if (!von && !nach && tt && ARROW.test(tt)) [von, nach] = tt.split(ARROW);
       // Stadt- und Ruhetage ohne Pfeil: der Titel ist der Ort (z. B. „Lyon“, „Ruhetag Ceillac“). Strand-/Aktivtage zählen als weitere Nacht am letzten Ort.
-      if (!von && !nach && r.titel && ["stadt", "ruhe"].includes(r.typ)) nach = r.titel.replace(/^(ruhetag|halber tag)\s*(in)?\s*/i, "");
+      if (!von && !nach && tt && ["stadt", "ruhe"].includes(r.typ)) nach = tt.replace(/^(ruhetag|halber tag)\s*(in)?\s*/i, "");
       if (von) push(von, 0);
       if (nach) push(nach, lastDay ? 0 : 1);
       else if (out.length && !lastDay) out[out.length - 1].naechte += 1;
@@ -200,6 +201,8 @@
         : `<label class="btn sm">${ICON.plus} GPX-Datei wählen<input type="file" accept=".gpx,application/gpx+xml" data-gadd hidden></label>
            <p class="hint" style="margin-top:.4rem">km und Höhenmeter werden aus dem Track übernommen, falls die Felder noch leer sind. Der Track erscheint auf der Weltkarte.</p>`;
     },
+    import: (t, file, rid) => importGpx(t, file, rid),
+    download: (t, id) => downloadGpx(t, (t.tracks || []).find((x) => x.id === id)),
     bindRow(root, t, rid, refresh) {
       root.addEventListener("change", async (e) => { const f = e.target.closest("[data-gadd]"); if (f && f.files[0]) { await importGpx(t, f.files[0], rid); refresh(); } });
       root.addEventListener("click", (e) => {
@@ -628,7 +631,7 @@
       <ul class="tracks">${tracks.map((tr) => { const i = t.plan.findIndex((r) => r.id === tr.tag); return `<li>${I.route}<span><b>${esc(tr.name)}</b><small>${i >= 0 ? esc(U.dayLabel(t, i)) + " · " : ""}${String(tr.km).replace(".", ",")} km · ↑ ${tr.hoch} m · ↓ ${tr.runter} m</small></span>
           <button class="btn sm" data-tdl="${tr.id}">GPX</button><button class="icon-btn" data-tdel="${tr.id}" aria-label="entfernen">${U.ICONS.trash}</button></li>`; }).join("") || `<li class="muted small">Noch keine Tracks.</li>`}</ul>
       <div class="row" style="gap:.4rem;margin-top:.5rem">
-        <select class="input" data-gtag style="flex:1;min-width:0"><option value="">Ohne bestimmten Tag</option>${t.plan.slice(0, t.tage).map((r, i) => `<option value="${r.id}">${esc(U.dayLabel(t, i))}${r.titel ? " · " + esc(r.titel) : ""}</option>`).join("")}</select>
+        <select class="input" data-gtag style="flex:1;min-width:0"><option value="">Ohne bestimmten Tag</option>${t.plan.slice(0, t.tage).map((r, i) => `<option value="${r.id}">${esc(U.dayLabel(t, i))}${r.titel ? " · " + esc(U.firstLine(r.titel)) : ""}</option>`).join("")}</select>
         <label class="btn sm">${ICON.plus} GPX hochladen<input type="file" accept=".gpx,application/gpx+xml" data-gfile hidden multiple></label>
       </div>
       <p class="hint" style="margin-top:.5rem">Tipp: In Outdooractive die Tour öffnen → „GPX herunterladen“. Dieselbe Datei kannst du auf deine Suunto übertragen und hier hochladen.</p>`;

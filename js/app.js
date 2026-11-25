@@ -326,8 +326,9 @@
     const el = $("#toast"); el.textContent = msg; el.classList.add("show");
     clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove("show"), 2600);
   }
-  function openModal({ title, body, foot = "", wide = false, onMount }) {
-    const root = $("#modalRoot");
+  let modalOnClose = null;
+  function openModal({ title, body, foot = "", wide = false, onMount, onClose }) {
+    const root = $("#modalRoot"); modalOnClose = onClose || null;
     root.innerHTML = `<div class="overlay" data-overlay><div class="modal ${wide ? "wide" : ""}" role="dialog" aria-modal="true" aria-label="${esc(title)}">
       <div class="modal-head"><h2>${esc(title)}</h2><button class="icon-btn" data-close aria-label="Schließen">${ICON.close}</button></div>
       <div class="modal-body">${body}</div>${foot ? `<div class="modal-foot">${foot}</div>` : ""}</div></div>`;
@@ -338,7 +339,7 @@
     const first = $("input, select, textarea", $(".modal-body", root));
     if (first) setTimeout(() => first.focus(), 30);
   }
-  function closeModal() { $("#modalRoot").innerHTML = ""; }
+  function closeModal() { const had = $("#modalRoot").innerHTML !== ""; $("#modalRoot").innerHTML = ""; const f = modalOnClose; modalOnClose = null; if (had && f) f(); }
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
 
   // Zwei-Klick-Bestätigung statt confirm()

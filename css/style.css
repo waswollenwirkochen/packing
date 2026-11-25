@@ -871,3 +871,50 @@ blockquote cite { display: block; font-size: .8rem; color: var(--ink-3); font-st
 .adm-row { display: flex; align-items: center; gap: .3rem .7rem; flex-wrap: wrap; padding: .5rem 0; border-top: 1px solid var(--line); }
 .adm-row .adm-who { flex: 1 1 12rem; min-width: 0; }
 .adm-row.is-old { opacity: .55; }
+
+/* ---------- Formatierbare Textfelder (fett/kursiv) ---------- */
+.rich { min-height: 2.4rem; padding: .45rem .55rem; border: 1px solid var(--line); border-radius: 8px; background: #fff; font-size: .92rem; line-height: 1.45;
+  color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; outline: none; cursor: text; }
+.rich:focus { border-color: var(--sky); box-shadow: 0 0 0 2px color-mix(in srgb, var(--sky) 25%, transparent); }
+.rich:empty::before { content: attr(data-ph); color: var(--ink-3); pointer-events: none; }
+.rich.big { min-height: 4.6rem; }
+.rich.rc { min-height: 9rem; }
+.rich b { font-weight: 700; }
+.rich-bar { position: fixed; z-index: 400; display: flex; gap: 2px; padding: 3px; background: var(--ink); border-radius: 10px; box-shadow: 0 6px 18px rgba(0, 0, 0, .2); }
+.rich-bar button { width: 38px; height: 32px; border: 0; border-radius: 7px; background: transparent; color: #fff; font-size: 1rem; cursor: pointer; font-family: Georgia, serif; }
+.rich-bar button:hover { background: rgba(255, 255, 255, .15); }
+/* in der Tabelle: Zellen wachsen mit dem Text */
+.sheet td.rt { vertical-align: top; }
+.sheet .rich.cell { border: 0; border-radius: 0; background: transparent; min-height: 2.2rem; padding: .45rem .5rem; font-size: .88rem; }
+.sheet .rich.cell.big { min-height: 4.4rem; }
+.sheet .rich.cell:focus { box-shadow: none; outline: 2px solid var(--sky); outline-offset: -2px; background: #fff; }
+.sheet td { vertical-align: top; }
+.sheet tr.gpx-over td, .day-card.gpx-over { background: color-mix(in srgb, var(--sky) 12%, #fff); }
+/* Wanderung: Link + GPX */
+.tour-cell { display: flex; flex-direction: column; gap: 2px; }
+.tour-btns { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 .4rem .35rem; }
+.day-card .tour-btns { padding: .35rem 0 0; }
+.mini-btn { display: inline-flex; align-items: center; gap: 3px; padding: 2px 7px; border: 1px solid var(--line); border-radius: 999px; background: #fff; color: var(--ink-2, var(--ink));
+  font-size: .72rem; font-weight: 600; text-decoration: none; cursor: pointer; line-height: 1.5; }
+.mini-btn svg { width: 13px; height: 13px; }
+.mini-btn.ok { border-color: var(--forest, #2f5241); color: var(--forest, #2f5241); }
+.day-card .tour-cell input { border: 1px solid var(--line); border-radius: 8px; padding: .4rem .5rem; font-size: .9rem; background: #fff; }
+/* Karten in der Planung: viel Platz, ganzer Text sichtbar, ein- und ausklappbar */
+.day-cards { grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); }
+.day-card { display: flex; flex-direction: column; }
+.dc-toggle { flex: 1; display: flex; flex-direction: column; align-items: flex-start; line-height: 1.15; background: none; border: 0; padding: 0; text-align: left; cursor: pointer; color: inherit; min-width: 0; }
+.dc-toggle small { color: var(--ink-3); font-size: .72rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.dc-l { display: block; margin: .55rem 0 .2rem; font-size: .7rem; color: var(--ink-3); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.day-card .dc-grid { margin-top: .5rem; }
+.day-card.closed .dc-head { margin-bottom: 0; }
+.dc-facts { margin-top: .3rem; }
+.plan-cards-tools { gap: .4rem; margin-bottom: .5rem; }
+/* Recherche-Kasten */
+.recherche { margin-top: 1rem; }
+.rc-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .4rem 1rem; }
+.rc-grid.ro { gap: .2rem 1.2rem; }
+@media (max-width: 760px) { .rc-grid { grid-template-columns: minmax(0, 1fr); } }
+.uw-rc-head { display: flex; width: 100%; justify-content: space-between; align-items: center; background: none; border: 0; padding: 0; cursor: pointer; color: inherit; }
+.uw-rc { margin-bottom: .8rem; }
+.tc-sec p { white-space: normal; }
+.day-sum { padding: .6rem .8rem; background: var(--paper, #f4eee1); border-radius: 10px; margin-bottom: .8rem; line-height: 1.45; }

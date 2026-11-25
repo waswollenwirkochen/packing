@@ -36,18 +36,99 @@
   const typName = (id) => (TYPEN.find((x) => x.id === id) || TYPEN[0]).name;
   const KATEGORIEN = ["Unterkunft", "Transport", "Essen", "Aktivitäten", "Tickets", "Sonstiges"];
   const FIELDS = [
-    { k: "titel", h: "Programm", ph: "Was machen wir?", w: 15 },
+    { k: "titel", h: "Programm", ph: "Was machen wir?", w: 22, rich: true },
     { k: "von", h: "Von", ph: "Start", w: 9 },
     { k: "nach", h: "Nach", ph: "Ziel", w: 9 },
     { k: "km", h: "km", ph: "", w: 4, num: true },
     { k: "dauer", h: "Dauer", ph: "5:30 h", w: 5 },
     { k: "hoch", h: "↑ m", ph: "", w: 4.5, num: true },
     { k: "runter", h: "↓ m", ph: "", w: 4.5, num: true },
-    { k: "highlights", h: "Highlights", ph: "", w: 12 },
-    { k: "unterkunft", h: "Unterkunft", ph: "", w: 11 },
-    { k: "hinweise", h: "Hinweise", ph: "", w: 12 },
-    { k: "sonstiges", h: "Sonstiges", ph: "", w: 9 }
+    { k: "highlights", h: "Highlights", ph: "", w: 14, rich: true },
+    { k: "unterkunft", h: "Unterkunft", ph: "", w: 13, rich: true },
+    { k: "tour", h: "Wanderung", ph: "outdooractive-Link", w: 13, link: true }
   ];
+  // Recherche-Kasten unter der Tabelle (für die ganze Reise)
+  const RECHERCHE = [
+    { k: "empfehlungen", h: "Empfehlungen", ph: "Was man in der Gegend machen kann – z. B. die 10 schönsten Ausflüge, Badestellen, Aussichtspunkte …" },
+    { k: "infos", h: "Wichtige Infos", ph: "z. B. „Bus nach Theth fährt stündlich ab 7 Uhr“, Öffnungszeiten, Fähren, Notfallnummern …" },
+    { k: "unterkuenfte", h: "Unterkünfte", ph: "Optionen mit Preis, Link, Telefon …" },
+    { k: "essen", h: "Essen & Trinken", ph: "Restaurants, Märkte, Bäckereien, regionale Spezialitäten …" }
+  ];
+
+  // ---------- Fett & kursiv: gespeichert als **fett** / *kursiv*, angezeigt formatiert ----------
+  const mdInline = (x) => esc(x).replace(/\*\*(\S(?:[^*]*?\S)?)\*\*/g, "<b>$1</b>").replace(/(^|[^*])\*(\S(?:[^*]*?\S)?)\*(?!\*)/g, "$1<i>$2</i>");
+  const richHtml = (md) => String(md || "").split("\n").map(mdInline).join("<br>");
+  const plain = (md) => String(md || "").replace(/\*\*(.+?)\*\*/g, "$1").replace(/(^|[^*])\*(.+?)\*/g, "$1$2");
+  const firstLine = (md) => plain(String(md || "").split("\n")[0]);
+  function nodeMd(n, b, i) {
+    let out = "";
+    for (const c of n.childNodes) {
+      if (c.nodeType === 3) { out += c.nodeValue.replace(/\u00a0/g, " "); continue; }
+      if (c.nodeType !== 1) continue;
+      const tag = c.tagName;
+      if (tag === "BR") { out += "\n"; continue; }
+      const block = /^(DIV|P|LI|H\d)$/.test(tag);
+      const fw = c.style ? c.style.fontWeight : "", fs = c.style ? c.style.fontStyle : "";
+      const isB = !b && (tag === "B" || tag === "STRONG" || fw === "bold" || +fw >= 600);
+      const isI = !i && (tag === "I" || tag === "EM" || fs === "italic");
+      let inner = nodeMd(c, b || isB, i || isI);
+      if ((isB || isI) && inner.trim()) {
+        const a = (isB ? "**" : "") + (isI ? "*" : ""), z = (isI ? "*" : "") + (isB ? "**" : "");
+        inner = inner.split("\n").map((l) => { const m = l.match(/^(\s*)(.*?)(\s*)$/); return m[2] ? m[1] + a + m[2] + z + m[3] : l; }).join("\n");
+      }
+      if (block) { if (out && !out.endsWith("\n")) out += "\n"; out += inner.endsWith("\n") ? inner : inner + "\n"; }
+      else out += inner;
+    }
+    return out;
+  }
+  const htmlToMd = (el) => nodeMd(el, false, false).replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").replace(/^\n+|\s+$/g, "");
+  const richBox = (key, md, ph, label, cls = "") => `<div class="rich ${cls}" contenteditable="true" spellcheck="true" role="textbox" aria-multiline="true" aria-label="${esc(label)}" data-rich="${key}" data-ph="${esc(ph || "")}">${richHtml(md)}</div>`;
+  // Formatierungsleiste (F / K) über dem gerade bearbeiteten Feld
+  const richBar = document.createElement("div");
+  richBar.className = "rich-bar"; richBar.hidden = true;
+  richBar.innerHTML = `<button type="button" data-fmt="bold" title="Fett (Strg+B)" aria-label="Fett"><b>F</b></button><button type="button" data-fmt="italic" title="Kursiv (Strg+I)" aria-label="Kursiv"><i>K</i></button>`;
+  document.body.appendChild(richBar);
+  let richEl = null, richTimer = null;
+  const placeBar = () => {
+    if (!richEl || !document.contains(richEl)) { richBar.hidden = true; return; }
+    const r = richEl.getBoundingClientRect();
+    richBar.hidden = false;
+    richBar.style.top = Math.max(6, r.top - 40) + "px";
+    richBar.style.left = Math.min(window.innerWidth - 90, Math.max(6, r.right - 84)) + "px";
+  };
+  richBar.addEventListener("mousedown", (e) => e.preventDefault());
+  richBar.addEventListener("click", (e) => { const b = e.target.closest("[data-fmt]"); if (b && richEl) { document.execCommand(b.dataset.fmt); richEl.dispatchEvent(new Event("input", { bubbles: true })); } });
+  function saveRich(el) {
+    const key = el.dataset.rich; if (!key) return;
+    const t = trip(); if (!t) return;
+    const md = htmlToMd(el);
+    const [a, k] = key.split(":");
+    const obj = a === "R" ? (t.recherche ||= {}) : t.plan.find((x) => x.id === a);
+    if (!obj || (obj[k] || "") === md) return;
+    if (md) obj[k] = md; else delete obj[k];
+    C.save();
+  }
+  document.addEventListener("focusin", (e) => { const el = e.target.closest && e.target.closest(".rich"); if (el) { richEl = el; placeBar(); } });
+  document.addEventListener("focusout", (e) => {
+    const el = e.target.closest && e.target.closest(".rich"); if (!el) return;
+    clearTimeout(richTimer); saveRich(el);
+    if (!el.textContent.trim()) el.innerHTML = "";
+    setTimeout(() => { if (!document.activeElement || !document.activeElement.closest(".rich")) { richEl = null; richBar.hidden = true; } }, 0);
+  });
+  document.addEventListener("input", (e) => { const el = e.target.closest && e.target.closest(".rich"); if (!el) return; clearTimeout(richTimer); richTimer = setTimeout(() => saveRich(el), 900); placeBar(); });
+  document.addEventListener("paste", (e) => {
+    const el = e.target.closest && e.target.closest(".rich"); if (!el) return;
+    e.preventDefault(); document.execCommand("insertText", false, (e.clipboardData || window.clipboardData).getData("text/plain"));
+  });
+  window.addEventListener("scroll", () => { if (richEl) placeBar(); }, true);
+  window.addEventListener("resize", () => { if (richEl) placeBar(); });
+
+  // Neu zeichnen nach einem Abgleich erst, wenn gerade niemand in ein Feld tippt (sonst springt der Cursor)
+  let renderLater = false;
+  const editing = () => { const a = document.activeElement; return !!a && !!a.closest && !!a.closest("main") && (a.matches("input:not([type=checkbox]):not([type=radio]):not([type=file]), textarea, select") || a.isContentEditable); };
+  function safeRender() { if (editing()) { renderLater = true; return; } C.render(); }
+  PL.safeRender = safeRender;
+  document.addEventListener("focusout", () => setTimeout(() => { if (renderLater && !editing()) { renderLater = false; C.render(); } }, 120));
 
   const num = (v) => { const n = parseFloat(String(v ?? "").replace(",", ".")); return isNaN(n) ? 0 : n; };
   const fmtNum = (n, d = 0) => n.toLocaleString("de-DE", { maximumFractionDigits: d });
@@ -74,9 +155,15 @@
   };
 
   // ---------- Tagesplan an Reisedauer anpassen ----------
-  const rowEmpty = (r) => !FIELDS.some((f) => String(r[f.k] ?? "").trim()) && !r.typ;
+  const rowEmpty = (r) => !FIELDS.some((f) => String(r[f.k] ?? "").trim()) && !r.typ && !r.hinweise && !r.sonstiges;
   function ensurePlan(t) {
     t.plan ||= [];
+    // „Hinweise“ und „Sonstiges“ gibt es nicht mehr: Inhalte wandern als eigene Zeilen ins Programm
+    t.plan.forEach((r) => {
+      if (!r.hinweise && !r.sonstiges) return;
+      r.titel = [r.titel, r.hinweise, r.sonstiges].filter((x) => String(x || "").trim()).join("\n");
+      delete r.hinweise; delete r.sonstiges;
+    });
     while (t.plan.length < t.tage) t.plan.push({ id: uid() + uid(), typ: "" });
     while (t.plan.length > t.tage && rowEmpty(t.plan[t.plan.length - 1])) t.plan.pop();
   }
@@ -437,7 +524,7 @@
       setStatus("busy");
       try {
         if (opts.sharedOnly) {
-          if (state.syncCfg && await syncShared()) { C.store.save(); if (["rezepte", "essen"].includes(state.ui.tab)) C.render(); }
+          if (state.syncCfg && await syncShared()) { C.store.save(); if (["rezepte", "essen"].includes(state.ui.tab)) safeRender(); }
           setStatus("ok"); return;
         }
         const before = JSON.stringify(state.trips);
@@ -471,7 +558,7 @@
         brokenNames.forEach((n) => errs.push(`Die Verbindung mit ${n} passt nicht – bitte ${n} um einen neuen Verbindungs-Link bitten (bei ${n}: Einstellungen → Mitreisende → Link → „Neuen Link erzeugen“).`));
         if (errs.length) setStatus("error", errs.join(" · "));
         else setStatus("ok");
-        if (JSON.stringify(state.trips) !== before || (shChanged && ["rezepte", "essen"].includes(state.ui.tab))) C.render();
+        if (JSON.stringify(state.trips) !== before || (shChanged && ["rezepte", "essen"].includes(state.ui.tab))) safeRender();
         prefetchFiles();
       } catch (e) {
         console.error(e);
@@ -510,7 +597,7 @@
       }
     } catch (e) { console.warn(e); }
     prefetching = false;
-    if (got && ["unterwegs", "karte"].includes(state.ui.tab)) C.render();
+    if (got && ["unterwegs", "karte"].includes(state.ui.tab)) safeRender();
   }
 
   // =========================================================
@@ -519,7 +606,9 @@
   function renderHeader() {
     const sel = $("#tripSwitch"); if (!sel) return;
     const t = trip();
-    const list = Object.values(state.trips).sort((a, b) => (a.von || "9999").localeCompare(b.von || "9999"));
+    // oben die aktuellsten, darunter ältere, ganz unten Urlaube ohne Datum
+    const when = (x) => x.von || (x.jahr ? String(x.jahr) + "-00" : "");
+    const list = Object.values(state.trips).sort((a, b) => (!when(a) - !when(b)) || when(b).localeCompare(when(a)) || tripName(a).localeCompare(tripName(b)));
     sel.innerHTML = (list.length ? list.map((x) => `<option value="${x.id}" ${t && x.id === t.id ? "selected" : ""}>${esc(tripName(x))}</option>`).join("") : `<option value="">Noch kein Urlaub</option>`)
       + `<option value="__new">+ Neuer Urlaub …</option>`;
     const dot = $("#syncState");
@@ -776,21 +865,41 @@
           </div></div>` : ""}
       </div>`;
 
+    const track = (rid) => (t.tracks || []).find((x) => x.tag === rid);
+    // Zelle „Wanderung“: Link + GPX (Datei wählen oder auf die Zeile ziehen)
+    const tourCell = (r, label) => {
+      const tr = track(r.id), url = /^https?:\/\//i.test(r.tour || "") ? r.tour : "";
+      return `<div class="tour-cell"><input data-cell="${r.id}:tour" value="${esc(r.tour || "")}" placeholder="outdooractive-Link" inputmode="url" aria-label="Wanderung (Link) – ${esc(label)}">
+        <div class="tour-btns">${url ? `<a class="mini-btn" href="${esc(url)}" target="_blank" rel="noopener" title="Tour öffnen – dort „GPX herunterladen“">${ICONS.map}<span>öffnen</span></a>` : ""}
+        ${tr ? `<button class="mini-btn ok" data-gpxdl="${tr.id}" title="${esc(tr.name)} – GPX herunterladen">${ICONS.route || "↓"}<span>GPX ✓</span></button>`
+          : `<label class="mini-btn" title="GPX-Datei hinzufügen (oder auf die Zeile ziehen)">${ICON.plus}<span>GPX</span><input type="file" accept=".gpx,application/gpx+xml" data-gpxadd="${r.id}" hidden></label>`}</div></div>`;
+    };
     let body;
     if (cards) {
-      body = `<div class="day-cards">${t.plan.map((r, i) => {
-        const out = i >= t.tage;
-        // auf dem Handy nur das Wichtigste – der Rest steckt in „Details“ (oder erscheint, sobald ausgefüllt)
-        const show = (k) => String(r[k] ?? "").trim() !== "" || ["titel", "von", "nach", "unterkunft"].includes(k)
-          || (["km", "dauer"].includes(k) && (r.typ === "wandern" || ["fahrt", "anreise", "abreise"].includes(r.typ))) || (["hoch", "runter"].includes(k) && r.typ === "wandern");
-        return `<div class="card day-card typ-${r.typ || "none"} ${out ? "out" : ""}" data-row="${r.id}">
+      const closed = state.ui.planClosed ||= {};
+      body = `<div class="row plan-cards-tools"><button class="btn sm ghost" data-act="cards-all" data-id="open">Alle ausklappen</button><button class="btn sm ghost" data-act="cards-all" data-id="closed">Alle einklappen</button></div>
+      <div class="day-cards">${t.plan.map((r, i) => {
+        const out = i >= t.tage, isClosed = !!closed[r.id];
+        const facts = [r.von && r.nach ? `${r.von} → ${r.nach}` : r.von || r.nach, r.km && `${r.km} km`, r.dauer, r.hoch && `↑ ${r.hoch} m`].filter(Boolean).join(" · ");
+        const showNums = r.typ === "wandern" || ["fahrt", "anreise", "abreise"].includes(r.typ) || r.km || r.dauer;
+        return `<div class="card day-card typ-${r.typ || "none"} ${out ? "out" : ""} ${isClosed ? "closed" : ""}" data-row="${r.id}">
           <div class="dc-head">
-            <div><b>${out ? "nach Reiseende" : esc(dayLabel(t, i))}</b><small>Tag ${i + 1}</small></div>
+            <button class="dc-toggle" data-act="card-toggle" data-id="${r.id}" aria-expanded="${!isClosed}"><b>${out ? "nach Reiseende" : esc(dayLabel(t, i))}</b><small>Tag ${i + 1}${isClosed && r.titel ? " · " + esc(firstLine(r.titel)) : ""}</small></button>
             <select data-cell="${r.id}:typ" aria-label="Art des Tages">${TYPEN.map((x) => `<option value="${x.id}" ${x.id === (r.typ || "") ? "selected" : ""}>${x.name}</option>`).join("")}</select>
-            <button class="icon-btn" data-act="day" data-id="${r.id}" title="Details & Unterlagen" aria-label="Details & Unterlagen">${ICONS.clip}${fileCount(r.id) ? `<span class="count-badge">${fileCount(r.id)}</span>` : ""}</button>
+            <button class="icon-btn" data-act="day" data-id="${r.id}" title="Unterlagen & GPX" aria-label="Unterlagen & GPX">${ICONS.clip}${fileCount(r.id) ? `<span class="count-badge">${fileCount(r.id)}</span>` : ""}</button>
             ${out ? `<button class="icon-btn" data-act="delrow" data-id="${r.id}" aria-label="Zeile löschen">${ICONS.trash}</button>` : ""}
+            <button class="icon-btn chev-btn" data-act="card-toggle" data-id="${r.id}" aria-label="${isClosed ? "Ausklappen" : "Einklappen"}">${isClosed ? "▾" : "▴"}</button>
           </div>
-          <div class="dc-grid">${FIELDS.filter((f) => show(f.k)).map((f) => `<label class="dc-f ${f.num ? "n" : ""} f-${f.k}"><span>${f.h}</span><input data-cell="${r.id}:${f.k}" value="${esc(r[f.k] ?? "")}" placeholder="${f.ph}" ${f.num ? 'inputmode="decimal"' : ""}></label>`).join("")}</div>
+          ${isClosed ? (facts ? `<div class="dc-facts small muted">${esc(facts)}</div>` : "") : `
+          <label class="dc-l">Programm</label>${richBox(r.id + ":titel", r.titel, "Was machen wir? Gern ausführlich – jede Zeile ein Programmpunkt.", "Programm – " + dayLabel(t, i), "big")}
+          <div class="dc-grid">
+            <label class="dc-f f-von"><span>Von</span><input data-cell="${r.id}:von" value="${esc(r.von || "")}" placeholder="Start"></label>
+            <label class="dc-f f-nach"><span>Nach</span><input data-cell="${r.id}:nach" value="${esc(r.nach || "")}" placeholder="Ziel"></label>
+            ${showNums ? ["km", "dauer", "hoch", "runter"].map((k) => { const f = FIELDS.find((x) => x.k === k); return `<label class="dc-f n f-${k}"><span>${f.h}</span><input data-cell="${r.id}:${k}" value="${esc(r[k] ?? "")}" placeholder="${f.ph}" ${f.num ? 'inputmode="decimal"' : ""}></label>`; }).join("") : ""}
+          </div>
+          <label class="dc-l">Highlights</label>${richBox(r.id + ":highlights", r.highlights, "Was darf man nicht verpassen?", "Highlights – " + dayLabel(t, i))}
+          <label class="dc-l">Unterkunft</label>${richBox(r.id + ":unterkunft", r.unterkunft, "Name, Adresse, Check-in …", "Unterkunft – " + dayLabel(t, i))}
+          <label class="dc-l">Wanderung</label>${tourCell(r, dayLabel(t, i))}`}
         </div>`;
       }).join("")}</div>`;
     } else {
@@ -799,23 +908,32 @@
         <colgroup><col style="width:7.5em"><col style="width:8.8em">${FIELDS.map((f) => `<col style="width:${f.w}em">`).join("")}<col style="width:3em"></colgroup>
         <thead><tr><th class="sticky-col">Datum</th><th>Art</th>${FIELDS.map((f) => `<th class="${f.num ? "n" : ""}">${f.h}</th>`).join("")}<th aria-label="Unterlagen">${ICONS.clip}</th></tr></thead>
         <tbody>${t.plan.map((r, i) => {
-          const out = i >= t.tage;
-          return `<tr class="typ-${r.typ || "none"} ${out ? "out" : ""}" data-row="${r.id}">
-            <th class="sticky-col day-th">${out ? "<small>nach Ende</small>" : esc(dayLabel(t, i))}</th>
+          const out = i >= t.tage, label = dayLabel(t, i);
+          return `<tr class="typ-${r.typ || "none"} ${out ? "out" : ""}" data-row="${r.id}" data-gpxdrop="${r.id}">
+            <th class="sticky-col day-th">${out ? "<small>nach Ende</small>" : esc(label)}</th>
             <td><select data-cell="${r.id}:typ" aria-label="Art des Tages">${TYPEN.map((x) => `<option value="${x.id}" ${x.id === (r.typ || "") ? "selected" : ""}>${x.name}</option>`).join("")}</select></td>
-            ${FIELDS.map((f) => `<td class="${f.num ? "n" : ""}"><input data-cell="${r.id}:${f.k}" value="${esc(r[f.k] ?? "")}" ${f.num ? 'inputmode="decimal"' : ""} aria-label="${f.h} – ${esc(dayLabel(t, i))}" title="${esc(r[f.k] ?? "")}"></td>`).join("")}
-            <td class="c"><button class="icon-btn" data-act="day" data-id="${r.id}" title="Details & Unterlagen" aria-label="Details & Unterlagen">${fileCount(r.id) ? `<span class="count-badge solo">${fileCount(r.id)}</span>` : ICONS.expand}</button>
+            ${FIELDS.map((f) => `<td class="${f.num ? "n" : ""} ${f.rich ? "rt" : ""}">${f.rich ? richBox(r.id + ":" + f.k, r[f.k], "", f.h + " – " + label, f.k === "titel" ? "cell big" : "cell")
+              : f.link ? tourCell(r, label)
+              : `<input data-cell="${r.id}:${f.k}" value="${esc(r[f.k] ?? "")}" ${f.num ? 'inputmode="decimal"' : ""} aria-label="${f.h} – ${esc(label)}" title="${esc(r[f.k] ?? "")}">`}</td>`).join("")}
+            <td class="c"><button class="icon-btn" data-act="day" data-id="${r.id}" title="Unterlagen & GPX" aria-label="Unterlagen & GPX">${fileCount(r.id) ? `<span class="count-badge solo">${fileCount(r.id)}</span>` : ICONS.expand}</button>
               ${out ? `<button class="icon-btn" data-act="delrow" data-id="${r.id}" aria-label="Zeile löschen">${ICONS.trash}</button>` : ""}</td>
           </tr>`;
         }).join("")}</tbody>
         <tfoot><tr><th class="sticky-col">Summe</th><td></td><td colspan="3" class="muted small">${s.wTage} Wandertage · ${fmtDur(s.wMin)} Gehzeit</td>
-          <td class="n" data-sum="km">${fmtNum(s.wKm + s.fKm, 1)}</td><td></td><td class="n" data-sum="hoch">${fmtNum(s.hoch)}</td><td class="n" data-sum="runter">${fmtNum(s.runter)}</td><td colspan="5"></td></tr></tfoot>
+          <td class="n" data-sum="km">${fmtNum(s.wKm + s.fKm, 1)}</td><td></td><td class="n" data-sum="hoch">${fmtNum(s.hoch)}</td><td class="n" data-sum="runter">${fmtNum(s.runter)}</td><td colspan="4"></td></tr></tfoot>
       </table></div>`;
     }
+    // Recherche-Kasten: Empfehlungen, wichtige Infos, Unterkünfte, Essen
+    const rc = t.recherche || {};
+    body += `<section class="card card-pad recherche">
+      <div class="row" style="justify-content:space-between;align-items:baseline"><h3 class="section-title">Recherche & Optionen vor Ort</h3><span class="muted small">für die ganze Reise · erscheint auch bei „Unterwegs“</span></div>
+      <div class="rc-grid">${RECHERCHE.map((f) => `<div class="rc-f"><label class="dc-l">${f.h}</label>${richBox("R:" + f.k, rc[f.k], f.ph, f.h, "rc")}</div>`).join("")}</div>
+      <p class="hint" style="margin:.6rem 0 0">Fett und kursiv: Text markieren und <b>F</b> / <i>K</i> tippen – oder Strg+B / Strg+I.</p>
+    </section>`;
     el.innerHTML = head + whoAmI(t) + statsHtml(t) + `
       <div class="row plan-tools no-print">
         <div class="seg"><button data-act="view" data-id="tabelle" class="${cards ? "" : "on"}">Tabelle</button><button data-act="view" data-id="karten" class="${cards ? "on" : ""}">Karten</button></div>
-        <span class="muted small">${cards ? "" : "Tab = nächste Zelle · Enter = Zeile darunter · Änderungen werden automatisch gespeichert"}</span>
+        <span class="muted small">${cards ? "" : "Tab = nächste Zelle · Änderungen werden automatisch gespeichert"}</span>
         <span class="spacer"></span>
         <button class="btn sm" data-act="print">${ICON.print} Drucken</button>
       </div>
@@ -829,6 +947,8 @@
     if (me) { C.setMe(t, me.dataset.me); state.ui.viewPerson = me.dataset.me; return C.commit(); }
     const part = e.target.closest("[data-part]");
     if (part) { state.current = part.dataset.part; C.store.save(); syncAll({ only: part.dataset.part }); return C.render(); }
+    const gdl = e.target.closest("[data-gpxdl]");
+    if (gdl && PL.gpx) return PL.gpx.download(t, gdl.dataset.gpxdl);
     const a = e.target.closest("[data-act]");
     if (!a) return;
     // Eckdaten (Kalender, Reiseart …) übernimmt die gemeinsame Logik
@@ -837,6 +957,8 @@
       case "split": return openSplit(t);
       case "toggle-meta": state.ui.metaOpen = !state.ui.metaOpen; return C.commit();
       case "view": state.ui.planView = a.dataset.id; return C.commit();
+      case "card-toggle": { const c = state.ui.planClosed ||= {}; if (c[a.dataset.id]) delete c[a.dataset.id]; else c[a.dataset.id] = 1; return C.commit(); }
+      case "cards-all": { state.ui.planClosed = {}; if (a.dataset.id === "closed") t.plan.forEach((r) => { state.ui.planClosed[r.id] = 1; }); return C.commit(); }
       case "day": return openDay(t, a.dataset.id);
       case "delrow": t.plan = t.plan.filter((r) => r.id !== a.dataset.id); return C.commit();
       case "invite": return openInvite(t);
@@ -868,6 +990,7 @@
   }
   function onPlanChange(e) {
     const el = e.target;
+    if (el.dataset.gpxadd != null) { const f = el.files[0]; if (f && PL.gpx) PL.gpx.import(trip(), f, el.dataset.gpxadd).then(() => C.render()); return; }
     if (el.closest(".meta-box")) { C.onPackChange(e); ensurePlan(trip()); return; }
     const c = el.dataset.cell; if (!c) return;
     const t = trip(); const [rid, k] = c.split(":");
@@ -898,36 +1021,17 @@
     const i = t.plan.findIndex((r) => r.id === rid); const r = t.plan[i]; if (!r) return;
     openModal({
       title: `${dayLabel(t, i, true)} · Tag ${i + 1}`, wide: true,
-      body: `<form id="dayForm" class="form-grid">
-        <label class="field c2">Art<select name="typ">${TYPEN.map((x) => `<option value="${x.id}" ${x.id === (r.typ || "") ? "selected" : ""}>${x.name}</option>`).join("")}</select></label>
-        <label class="field c4">Programm<input name="titel" value="${esc(r.titel || "")}"></label>
-        <label class="field c3">Von<input name="von" value="${esc(r.von || "")}"></label>
-        <label class="field c3">Nach<input name="nach" value="${esc(r.nach || "")}"></label>
-        <label class="field c2">km<input name="km" value="${esc(r.km || "")}" inputmode="decimal"></label>
-        <label class="field c2">Dauer<input name="dauer" value="${esc(r.dauer || "")}" placeholder="5:30 h"></label>
-        <label class="field c1x">↑ m<input name="hoch" value="${esc(r.hoch || "")}" inputmode="numeric"></label>
-        <label class="field c1x">↓ m<input name="runter" value="${esc(r.runter || "")}" inputmode="numeric"></label>
-        <label class="field c6">Highlights<textarea name="highlights" rows="2">${esc(r.highlights || "")}</textarea></label>
-        <label class="field c6">Unterkunft<input name="unterkunft" value="${esc(r.unterkunft || "")}"></label>
-        <label class="field c6">Hinweise<textarea name="hinweise" rows="2">${esc(r.hinweise || "")}</textarea></label>
-        <label class="field c6">Sonstiges<textarea name="sonstiges" rows="2">${esc(r.sonstiges || "")}</textarea></label>
-      </form>
-      <h4 class="form-sub" style="margin-top:1rem">Tickets & Unterlagen für diesen Tag</h4>
+      body: `${r.titel ? `<div class="day-sum">${richHtml(r.titel)}</div>` : ""}
+      <h4 class="form-sub">Tickets & Unterlagen für diesen Tag</h4>
       <div id="dayFiles" data-drop="${rid}">${filesHtml(t, rid)}</div>
-      ${PL.gpx ? `<h4 class="form-sub" style="margin-top:1rem">GPX-Track (z. B. aus Outdooractive)</h4><div id="dayGpx">${PL.gpx.rowHtml(t, rid)}</div>` : ""}`,
-      foot: `<button class="btn" data-close>Abbrechen</button><button class="btn primary" form="dayForm">Speichern</button>`,
+      ${PL.gpx ? `<h4 class="form-sub" style="margin-top:1rem">GPX-Track (z. B. aus Outdooractive)</h4><div id="dayGpx">${PL.gpx.rowHtml(t, rid)}</div>
+        ${/^https?:/i.test(r.tour || "") ? `<p class="hint" style="margin-top:.4rem"><a href="${esc(r.tour)}" target="_blank" rel="noopener">Tour bei outdooractive öffnen</a> → dort „GPX herunterladen“ → Datei hier wählen.</p>` : ""}` : ""}`,
+      foot: `<button class="btn primary" data-close>Fertig</button>`,
       onMount: (m) => {
-        $("#dayForm", m).addEventListener("submit", (e) => {
-          e.preventDefault(); const f = e.target;
-          ["typ", ...FIELDS.map((x) => x.k)].forEach((k) => { const v = (f[k].value || "").trim(); if (v) r[k] = v; else delete r[k]; });
-          closeModal(); C.commit();
-        });
         bindFiles($("#dayFiles", m), t, rid, () => { $("#dayFiles", m).innerHTML = filesHtml(t, rid); });
-        if (PL.gpx) PL.gpx.bindRow($("#dayGpx", m), t, rid, () => {
-          $("#dayGpx", m).innerHTML = PL.gpx.rowHtml(t, rid);
-          ["km", "dauer", "hoch", "runter"].forEach((k) => { const f = $("#dayForm", m)[k]; if (f && !f.value && r[k]) f.value = r[k]; });
-        });
-      }
+        if (PL.gpx) PL.gpx.bindRow($("#dayGpx", m), t, rid, () => { $("#dayGpx", m).innerHTML = PL.gpx.rowHtml(t, rid); });
+      },
+      onClose: () => C.render()
     });
   }
 
@@ -977,7 +1081,7 @@
     C.save(); if (isShared(t.id)) syncAll({ only: t.id });
   }
   const tagOptions = (t, sel) => `<option value="" ${!sel ? "selected" : ""}>Allgemein (ohne Tag)</option>` +
-    t.plan.slice(0, t.tage).map((r, i) => `<option value="${r.id}" ${r.id === sel ? "selected" : ""}>${esc(dayLabel(t, i))}${r.titel ? " · " + esc(r.titel) : ""}</option>`).join("");
+    t.plan.slice(0, t.tage).map((r, i) => `<option value="${r.id}" ${r.id === sel ? "selected" : ""}>${esc(dayLabel(t, i))}${r.titel ? " · " + esc(firstLine(r.titel)) : ""}</option>`).join("");
   async function openFile(t, id) {
     const f = (t.tickets || []).find((x) => x.id === id); if (!f) return;
     let blob;
@@ -1010,17 +1114,32 @@
     const facts = [r.km && `${r.km} km`, r.dauer, r.hoch && `↑ ${r.hoch} m`, r.runter && `↓ ${r.runter} m`].filter(Boolean);
     const maps = (q) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;
     const track = (t.tracks || []).find((x) => x.tag === r.id);
+    const tourUrl = /^https?:/i.test(r.tour || "") ? r.tour : "";
+    const more = String(r.titel || "").includes("\n") || /\*/.test(r.titel || "");
     return `<div class="uw-body">
       ${route ? `<div class="tc-route">${esc(route)}</div>` : ""}
       ${facts.length ? `<div class="tc-facts">${facts.map((x) => `<span>${esc(x)}</span>`).join("")}</div>` : ""}
-      ${track ? `<p class="small muted" style="margin:.5rem 0 0">GPX-Track: ${esc(track.name)} · <a href="#karte" data-mapday="${r.id}">auf der Karte</a></p>` : ""}
-      ${r.highlights ? `<div class="tc-sec"><h4>Highlights</h4><p>${esc(r.highlights)}</p></div>` : ""}
-      ${r.unterkunft ? `<div class="tc-sec"><h4>Unterkunft</h4><p>${esc(r.unterkunft)} <a class="map-link" href="${maps(r.unterkunft + " " + (r.nach || t.ziel || ""))}" target="_blank" rel="noopener">${ICONS.map} Karte</a></p></div>` : ""}
-      ${r.hinweise ? `<div class="tc-sec"><h4>Hinweise</h4><p>${esc(r.hinweise)}</p></div>` : ""}
-      ${r.sonstiges ? `<div class="tc-sec"><h4>Sonstiges</h4><p>${esc(r.sonstiges)}</p></div>` : ""}
+      ${more ? `<div class="tc-sec"><h4>Programm</h4><p>${richHtml(r.titel)}</p></div>` : ""}
+      ${track || tourUrl || r.tour ? `<div class="tc-sec"><h4>Wanderung</h4><div class="row" style="gap:.4rem">
+        ${track ? `<button class="btn sm primary" data-gpxdl="${track.id}">GPX herunterladen</button><a class="btn sm" href="#karte" data-mapday="${r.id}">${ICONS.map} Auf der Karte</a>` : ""}
+        ${tourUrl ? `<a class="btn sm" href="${esc(tourUrl)}" target="_blank" rel="noopener">Tour bei outdooractive</a>` : r.tour ? `<span>${esc(r.tour)}</span>` : ""}</div>
+        ${track ? `<p class="small muted" style="margin:.35rem 0 0">${esc(track.name)}</p>` : ""}</div>` : ""}
+      ${r.highlights ? `<div class="tc-sec"><h4>Highlights</h4><p>${richHtml(r.highlights)}</p></div>` : ""}
+      ${r.unterkunft ? `<div class="tc-sec"><h4>Unterkunft</h4><p>${richHtml(r.unterkunft)} <a class="map-link" href="${maps(plain(r.unterkunft).split("\n")[0] + " " + (r.nach || t.ziel || ""))}" target="_blank" rel="noopener">${ICONS.map} Karte</a></p></div>` : ""}
       <div class="tc-sec"><h4>Tickets & Unterlagen</h4>${filesHtml(t, r.id)}</div>
       <div class="row" style="margin-top:.6rem"><button class="btn sm" data-act="edit" data-id="${r.id}">${ICON.edit} Tag bearbeiten</button></div>
     </div>`;
+  }
+  // Empfehlungen & wichtige Infos aus der Planung – immer vor Augen
+  function recherCard(t) {
+    const rc = t.recherche || {}; const parts = RECHERCHE.filter((f) => String(rc[f.k] || "").trim());
+    if (!parts.length) return "";
+    const open = state.ui.rcOpen !== false;
+    return `<section class="card card-pad uw-rc">
+      <button class="uw-rc-head" data-act="rc-toggle" aria-expanded="${open}"><h3 class="section-title">Empfehlungen & wichtige Infos</h3><span class="chev">${open ? "▴" : "▾"}</span></button>
+      ${open ? `<div class="rc-grid ro">${parts.map((f) => `<div class="tc-sec"><h4>${f.h}</h4><p>${richHtml(rc[f.k])}</p></div>`).join("")}</div>
+      <p class="small muted" style="margin:.5rem 0 0">Bearbeiten in der <a href="#plan">Planung</a>.</p>` : ""}
+    </section>`;
   }
   function renderUnterwegs() {
     const t = trip(); const el = $("#view-unterwegs");
@@ -1039,13 +1158,14 @@
         <h4 class="form-sub" style="margin:.7rem 0 .35rem">Dateien – z. B. Offline-Karten, Versicherung, Mietvertrag</h4>
         ${filesHtml(t, "")}
       </section>
+      ${recherCard(t)}
       <p class="muted small uw-hint">${ICONS.clip} Dateien einfach auf einen Tag ziehen – oder vorhandene Dateien zwischen Tagen verschieben.</p>
       <div class="uw-days">${t.plan.slice(0, t.tage).map((r, i) => {
         const isOpen = open.has(r.id); const n = files.filter((f) => f.tag === r.id).length;
         return `<section class="card uw-day typ-${r.typ || "none"} ${isOpen ? "open" : ""} ${i === ti ? "is-today" : ""}" data-drop="${r.id}" id="uw-${r.id}">
           <button class="uw-head" data-toggle="${r.id}" aria-expanded="${isOpen}">
             <span class="uw-date"><b>${esc(dayLabel(t, i))}</b><small>Tag ${i + 1}${i === ti ? " · heute" : ""}</small></span>
-            <span class="uw-title">${r.typ ? `<span class="badge typ-badge">${typName(r.typ)}</span>` : ""}<span>${esc(r.titel || (r.typ ? "" : "–"))}</span></span>
+            <span class="uw-title">${r.typ ? `<span class="badge typ-badge">${typName(r.typ)}</span>` : ""}<span>${r.titel ? mdInline(String(r.titel).split("\n")[0]) : r.typ ? "" : "–"}</span></span>
             <span class="uw-meta">${n ? `<span class="file-count">${ICONS.clip}${n}</span>` : ""}<span class="chev">${isOpen ? "▴" : "▾"}</span></span>
           </button>
           ${isOpen ? dayBody(t, r) : n ? `<ul class="files mini-files">${files.filter((f) => f.tag === r.id).map(fileLi).join("")}</ul>` : ""}
@@ -1058,6 +1178,8 @@
     }
   }
   function onUnterwegsClick(e) {
+    const rct = e.target.closest("[data-act=rc-toggle]"); if (rct) { state.ui.rcOpen = state.ui.rcOpen === false; C.store.save(); return C.render(); }
+    const gdl = e.target.closest("[data-gpxdl]"); if (gdl && PL.gpx) return PL.gpx.download(trip(), gdl.dataset.gpxdl);
     const t = trip();
     const me = e.target.closest("[data-me]");
     if (me) { C.setMe(t, me.dataset.me); return C.commit(); }
@@ -1677,13 +1799,13 @@
     ws.mergeCells("A1:H1"); ws.getCell("A1").value = tripName(t); ws.getCell("A1").font = { bold: true, size: 16, color: { argb: GREEN } };
     ws.mergeCells("A2:H2"); ws.getCell("A2").value = [t.ziel, t.von ? `${C.toDE(t.von)} – ${C.toDE(t.bis)}` : "", `${t.tage} Tage`, people].filter(Boolean).join("  ·  ");
     ws.getCell("A2").font = { color: { argb: "FF56645B" } };
-    const cols = [["Datum", 12], ["Wochentag", 11], ["Art", 11], ["Programm", 28], ["Von", 18], ["Nach", 18], ["km", 7], ["Dauer", 8], ["Aufstieg (m)", 10], ["Abstieg (m)", 10], ["Highlights", 28], ["Unterkunft", 24], ["Hinweise", 28], ["Sonstiges", 20], ["Unterlagen", 20]];
+    const cols = [["Datum", 12], ["Wochentag", 11], ["Art", 11], ["Programm", 28], ["Von", 18], ["Nach", 18], ["km", 7], ["Dauer", 8], ["Aufstieg (m)", 10], ["Abstieg (m)", 10], ["Highlights", 28], ["Unterkunft", 24], ["Wanderung", 28], ["Unterlagen", 20]];
     ws.columns = cols.map(([h, w]) => ({ width: w }));
     const hr = ws.getRow(4); hr.values = cols.map((c) => c[0]); headStyle(hr);
     t.plan.slice(0, t.tage).forEach((r, i) => {
       const iso = dateOf(t, i);
-      const row = ws.addRow([iso ? isoToDate(iso) : `Tag ${i + 1}`, iso ? fmtDate(iso, { weekday: "long" }) : "", typName(r.typ || "").replace("–", ""), r.titel || "", r.von || "", r.nach || "",
-        r.km ? num(r.km) : null, r.dauer || "", r.hoch ? num(r.hoch) : null, r.runter ? num(r.runter) : null, r.highlights || "", r.unterkunft || "", r.hinweise || "", r.sonstiges || "",
+      const row = ws.addRow([iso ? isoToDate(iso) : `Tag ${i + 1}`, iso ? fmtDate(iso, { weekday: "long" }) : "", typName(r.typ || "").replace("–", ""), plain(r.titel), r.von || "", r.nach || "",
+        r.km ? num(r.km) : null, r.dauer || "", r.hoch ? num(r.hoch) : null, r.runter ? num(r.runter) : null, plain(r.highlights), plain(r.unterkunft), r.tour || "",
         (t.tickets || []).filter((f) => f.tag === r.id).map((f) => f.name).join(", ")]);
       if (iso) row.getCell(1).numFmt = "dd.mm.yyyy";
       row.alignment = { vertical: "top", wrapText: true };
@@ -1692,7 +1814,14 @@
     const last = 4 + t.tage;
     const sum = ws.addRow(["Summe", "", "", "", "", "", { formula: `SUM(G5:G${last})` }, "", { formula: `SUM(I5:I${last})` }, { formula: `SUM(J5:J${last})` }]);
     sum.font = { bold: true }; sum.eachCell((c) => { c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: PAPER } }; });
-    ws.autoFilter = { from: "A4", to: `O${last}` };
+    ws.autoFilter = { from: "A4", to: `N${last}` };
+    // --- Recherche ---
+    const rc = t.recherche || {};
+    if (RECHERCHE.some((f) => rc[f.k])) {
+      const wr = wb.addWorksheet("Recherche");
+      wr.columns = [{ header: "Thema", width: 18 }, { header: "Notizen", width: 90 }]; headStyle(wr.getRow(1));
+      RECHERCHE.forEach((f) => { if (rc[f.k]) { const row = wr.addRow([f.h, plain(rc[f.k])]); row.alignment = { vertical: "top", wrapText: true }; } });
+    }
 
     // --- Kosten ---
     const wk = wb.addWorksheet("Kosten", { views: [{ state: "frozen", ySplit: 1 }] });
@@ -1820,7 +1949,8 @@
     ensurePlan(t);
     days.forEach((d) => {
       const i = t.von ? C.dayDiff(t.von, d.iso) : -1; const r = t.plan[i]; if (!r) return;
-      ["typ", "titel", "von", "nach", "km", "dauer", "hoch", "runter", "unterkunft", "hinweise", "sonstiges"].forEach((k) => { if (d[k]) r[k] = d[k]; });
+      ["typ", "titel", "von", "nach", "km", "dauer", "hoch", "runter", "unterkunft"].forEach((k) => { if (d[k]) r[k] = d[k]; });
+      const extra = [d.hinweise, d.sonstiges].filter(Boolean); if (extra.length) r.titel = [r.titel, ...extra].filter(Boolean).join("\n");
     });
     const pid = (n) => (t.personen.find((p) => p.name.toLowerCase() === n.toLowerCase()) || {}).id;
     t.kosten = costs.map((k) => {
@@ -1839,7 +1969,7 @@
   // =========================================================
   PL.views = { urlaube: renderUrlaube, plan: renderPlan, unterwegs: renderUnterwegs, kosten: renderKosten, einstellungen: renderSettings };
   PL.U = { partsOf, withMe, groupName, cfgFor, isShared, syncAll, putBlob, getBlob, dropBlob, offlineState, whoAmI, planStats, TYPEN, typName, dayLabel, dateOf,
-    ensurePlan, durMin, fmtDur, num, fmtNum, money, ICONS, online, openDay, tripBadge, fmtSize };
+    ensurePlan, durMin, fmtDur, num, fmtNum, money, ICONS, online, openDay, tripBadge, fmtSize, plain, firstLine, richHtml };
   PL.init = () => {
     // leere, unbenannte Urlaube (z. B. automatisch angelegt von der alten Packliste) entfernen
     const isEmpty = (t) => !(t.name || "").trim() && !(t.ziel || "").trim() && !t.von && !(t.kosten || []).length && !(t.tickets || []).length
@@ -1862,6 +1992,15 @@
     on("plan", "click", onPlanClick);
     on("plan", "change", onPlanChange);
     on("plan", "keydown", onPlanKey);
+    on("plan", "dragover", (e) => { const tr = e.target.closest("[data-gpxdrop], .day-card"); if (tr && [...(e.dataTransfer.items || [])].some((x) => x.kind === "file")) { e.preventDefault(); tr.classList.add("gpx-over"); } });
+    on("plan", "dragleave", (e) => { const tr = e.target.closest("[data-gpxdrop], .day-card"); if (tr) tr.classList.remove("gpx-over"); });
+    on("plan", "drop", (e) => {
+      const tr = e.target.closest("[data-gpxdrop], .day-card"); if (!tr) return;
+      const files = [...(e.dataTransfer.files || [])]; if (!files.length) return;
+      e.preventDefault(); tr.classList.remove("gpx-over");
+      const t = trip(), rid = tr.dataset.gpxdrop || tr.dataset.row;
+      (async () => { for (const f of files) { if (/\.gpx$/i.test(f.name) && PL.gpx) await PL.gpx.import(t, f, rid); else await addFile(t, f, rid); } C.render(); })();
+    });
     on("unterwegs", "click", onUnterwegsClick);
     on("unterwegs", "change", onUnterwegsChange);
     bindDrops($("#view-unterwegs"));
