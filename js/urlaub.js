@@ -1220,12 +1220,15 @@
     el.innerHTML = `
       ${whoAmI(t)}
       ${before ? `<div class="card card-pad countdown-card"><b>Noch ${C.dayDiff(today, t.von)} ${C.dayDiff(today, t.von) === 1 ? "Tag" : "Tage"}</b> bis „${esc(tripName(t))}“ losgeht.</div>` : ""}
-      <section class="card card-pad uw-allg" data-drop="">
-        <div class="row" style="justify-content:space-between"><h3 class="section-title">Allgemein</h3><span class="muted small">nicht an einen Tag gebunden</span></div>
-        <textarea class="input uw-notes" data-allg rows="3" placeholder="Notizen für die ganze Reise – z. B. Notfallnummern, WLAN, Mietwagen-Abholung …">${esc(t.allgemein || "")}</textarea>
+      ${(() => {
+        const allgOpen = !!(state.ui.allgOpen || {})[t.id], nf = files.filter((f) => !f.tag).length;
+        const sum = [t.allgemein ? firstLine(t.allgemein).slice(0, 70) + (String(t.allgemein).length > 70 || String(t.allgemein).includes("\n") ? " …" : "") : "", nf ? `${nf} ${nf === 1 ? "Datei" : "Dateien"}` : ""].filter(Boolean).join(" · ");
+        return `<section class="card card-pad uw-allg ${allgOpen ? "open" : ""}" data-drop="">
+        <button class="uw-rc-head" data-act="allg-toggle" aria-expanded="${allgOpen}"><span class="allg-h"><h3 class="section-title">Allgemein</h3><span class="muted small">${allgOpen ? "nicht an einen Tag gebunden" : esc(sum || "Notizen & Dateien für die ganze Reise")}</span></span><span class="chev">${allgOpen ? "▴" : "▾"}</span></button>
+        ${allgOpen ? `<textarea class="input uw-notes" data-allg rows="3" placeholder="Notizen für die ganze Reise – z. B. Notfallnummern, WLAN, Mietwagen-Abholung …">${esc(t.allgemein || "")}</textarea>
         <h4 class="form-sub" style="margin:.7rem 0 .35rem">Dateien – z. B. Offline-Karten, Versicherung, Mietvertrag</h4>
-        ${filesHtml(t, "")}
-      </section>
+        ${filesHtml(t, "")}` : ""}
+      </section>`; })()}
       ${recherCard(t)}
       <p class="muted small uw-hint">${ICONS.clip} Dateien einfach auf einen Tag ziehen – oder vorhandene Dateien zwischen Tagen verschieben.</p>
       <div class="uw-days">${t.plan.slice(0, t.tage).map((r, i) => {
@@ -1246,6 +1249,7 @@
     }
   }
   function onUnterwegsClick(e) {
+    const agt = e.target.closest("[data-act=allg-toggle]"); if (agt) { const o = state.ui.allgOpen ||= {}; const id = trip().id; if (o[id]) delete o[id]; else o[id] = 1; C.store.save(); return C.render(); }
     const rct = e.target.closest("[data-act=rc-toggle]"); if (rct) { state.ui.rcOpen = state.ui.rcOpen === false; C.store.save(); return C.render(); }
     const gdl = e.target.closest("[data-gpxdl]"); if (gdl && PL.gpx) return PL.gpx.download(trip(), gdl.dataset.gpxdl);
     const t = trip();

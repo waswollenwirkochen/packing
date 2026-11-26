@@ -969,3 +969,7 @@ blockquote cite { display: block; font-size: .8rem; color: var(--ink-3); font-st
   .kosten-layout > aside { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; align-items: start; }
   .kosten-layout > aside > * { margin: 0; }
 }
+.uw-allg .uw-rc-head { text-align: left; gap: .6rem; }
+.allg-h { display: flex; align-items: baseline; gap: .7rem; flex-wrap: wrap; min-width: 0; }
+.allg-h .section-title { margin: 0; }
+.uw-allg.open .uw-rc-head { margin-bottom: .5rem; }
