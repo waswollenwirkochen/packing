@@ -1001,6 +1001,7 @@
         <div class="seg"><button data-act="view" data-id="tabelle" class="${cards ? "" : "on"}">Tabelle</button><button data-act="view" data-id="karten" class="${cards ? "on" : ""}">Karten</button></div>
         <span class="muted small">${cards ? "" : "Tab = nächste Zelle · Änderungen werden automatisch gespeichert"}</span>
         <span class="spacer"></span>
+        <button class="btn sm" data-act="buchung" title="Bestätigungsmail von Booking, Airbnb & Co. einfügen – Unterkunft und Kosten werden eingetragen">${ICON.plus} Buchung einfügen</button>
         <button class="btn sm" data-act="print" title="Lädt die Excel-Datei – im Querformat auf Seitenbreite eingestellt, fertig zum Drucken">${ICON.print} Drucken (Excel)</button>
       </div>
       ${extra ? `<p class="hint">Der Zeitraum ist kürzer als der Plan – Tage nach Reiseende sind grau markiert und können gelöscht werden.</p>` : ""}
@@ -1032,6 +1033,7 @@
       case "export": return exportExcel(t);
       case "map": state.ui.mapTrip = t.id; state.ui.mapDetail = "route"; C.store.save(); location.hash = "karte"; return;
       case "print": return exportExcel(t); // Drucken = druckfertige Excel-Datei
+      case "buchung": return openBooking(t);
       case "dup": {
         const c = clone(t); c.id = uid() + uid(); c.name = tripName(t) + " (Kopie)"; c.status = {}; c.tickets = [];
         state.keys[c.id] = { k: S.randomKey(), owner: true }; state.me[c.id] = C.myId(t);
@@ -1340,6 +1342,145 @@
     }
     return { paid, share, saldo, transfers, sent };
   }
+  // =========================================================
+  //  BUCHUNG EINFÜGEN (Bestätigungsmail von Booking, Airbnb, Hostelworld …)
+  // =========================================================
+  const MONATE = { jan: 1, januar: 1, january: 1, feb: 2, februar: 2, february: 2, mär: 3, maer: 3, märz: 3, maerz: 3, mar: 3, march: 3, apr: 4, april: 4, mai: 5, may: 5,
+    jun: 6, juni: 6, june: 6, jul: 7, juli: 7, july: 7, aug: 8, august: 8, sep: 9, sept: 9, september: 9, okt: 10, oktober: 10, oct: 10, october: 10, nov: 11, november: 11, dez: 12, dezember: 12, dec: 12, december: 12 };
+  const MON_RE = "(jan(?:uar|uary)?|feb(?:ruar|ruary)?|m(?:ä|ae)rz?|mar(?:ch)?|apr(?:il)?|mai|may|jun[ei]?|jul[iy]?|aug(?:ust)?|sep(?:t(?:ember)?)?|o[ck]t(?:ober)?|nov(?:ember)?|de[cz](?:ember)?)\.?";
+  function findDates(txt, yearHint) {
+    const out = []; const add = (i, y, m, d) => { if (m >= 1 && m <= 12 && d >= 1 && d <= 31) out.push({ i, iso: `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`, noYear: !y }); };
+    const yy = (y) => (!y ? 0 : y.length === 2 ? 2000 + +y : +y);
+    let m;
+    const re1 = /\b(\d{4})-(\d{2})-(\d{2})\b/g; while ((m = re1.exec(txt))) add(m.index, +m[1], +m[2], +m[3]);
+    const re2 = /\b(\d{1,2})\.(\d{1,2})\.(\d{2,4})?(?!\d)/g; while ((m = re2.exec(txt))) add(m.index, yy(m[3]), +m[2], +m[1]);
+    const re3 = new RegExp(`\\b(\\d{1,2})\\.?\\s+${MON_RE}(?:\\s+(\\d{4}))?`, "gi"); while ((m = re3.exec(txt))) add(m.index, yy(m[3]), MONATE[m[2].toLowerCase().replace(/\.$/, "").replace("ae", "ä")] || MONATE[m[2].toLowerCase().slice(0, 3)], +m[1]);
+    const re4 = new RegExp(`\\b${MON_RE}\\s+(\\d{1,2})(?:st|nd|rd|th)?,?(?:\\s+(\\d{4}))?`, "gi"); while ((m = re4.exec(txt))) add(m.index, yy(m[3]), MONATE[m[1].toLowerCase().replace(/\.$/, "")] || MONATE[m[1].toLowerCase().slice(0, 3)], +m[2]);
+    // Jahr ergänzen, wo es fehlt (Airbnb schreibt oft nur „Do., 4. März“)
+    const base = yearHint || new Date().getFullYear();
+    out.forEach((d) => { if (d.noYear) { const md = d.iso.slice(-5); d.iso = `${base}-${md}`; } });
+    return out.sort((a, b) => a.i - b.i);
+  }
+  function parseBooking(raw, t) {
+    const txt = String(raw || "").replace(/\r/g, "").replace(/[  ]/g, " ");
+    const low = txt.toLowerCase();
+    const r = { quelle: /airbnb/.test(low) ? "Airbnb" : /booking\.com/.test(low) ? "Booking.com" : /hostelworld/.test(low) ? "Hostelworld" : /expedia/.test(low) ? "Expedia" : "" };
+    const year = +(t.von || "").slice(0, 4) || new Date().getFullYear();
+    const dates = findDates(txt, year);
+    const near = (words) => {
+      const re = new RegExp(`(${words})`, "gi"); let m;
+      while ((m = re.exec(txt))) { const d = dates.find((x) => x.i >= m.index && x.i - m.index < 120); if (d) return d; }
+      return null;
+    };
+    const din = near("check-?in|anreise|ankunft|arrival|einchecken");
+    const dout = near("check-?out|abreise|departure|auschecken");
+    let ds = [...new Set(dates.map((d) => d.iso))].sort();
+    r.von = din ? din.iso : ds[0] || "";
+    r.bis = dout ? dout.iso : ds.find((d) => d > r.von) || "";
+    if (r.bis && r.von && r.bis <= r.von) { const alt = ds.find((d) => d > r.von); r.bis = alt || ""; }
+    // Uhrzeit Check-in
+    const ci = txt.match(/(?:check-?in|anreise|einchecken)[^\n]{0,60}?(?:ab|from|after|von)\s*(\d{1,2})[:.](\d{2})\s*(am|pm)?/i)
+      || txt.match(/(?:check-?in|anreise|einchecken)[^\n]{0,40}?\b(\d{1,2})[:.](\d{2})\s*(am|pm|uhr)?/i)
+      || txt.match(/(?:check-?in|anreise)\s*\n[^\n]*\n\s*(?:ab|from|after)?\s*(\d{1,2})[:.](\d{2})\s*(am|pm)?/i);
+    if (ci) { let h = +ci[1]; const ap = (ci[3] || "").toLowerCase(); if (ap === "pm" && h < 12) h += 12; if (ap === "am" && h === 12) h = 0; r.zeit = `${String(h).padStart(2, "0")}:${ci[2]}`; }
+    // Preis
+    const curPat = "€|eur|chf|£|gbp|\\$|usd|lek|all|kr|nok|sek|dkk|czk|kč|zł|pln|huf|ft";
+    const amt = new RegExp(`(?:(${curPat})\\s*)?(\\d{1,3}(?:[.,  ]\\d{3})*(?:[.,]\\d{1,2})?|\\d+(?:[.,]\\d{1,2})?)(?:\\s*(${curPat}))?`, "gi");
+    const toNum = (x) => { x = x.replace(/[  ]/g, ""); if (/[.,]\d{1,2}$/.test(x)) { const dec = x.slice(-3).replace(/^[.,]/, "").length; x = x.slice(0, x.length - dec - 1).replace(/[.,]/g, "") + "." + x.slice(-dec); } else x = x.replace(/[.,]/g, ""); return +x; };
+    const curOf = (c) => { c = (c || "").toLowerCase(); return c === "€" || c === "eur" ? "EUR" : c === "£" || c === "gbp" ? "GBP" : c === "$" || c === "usd" ? "USD" : c === "lek" || c === "all" ? "ALL" : c === "kč" || c === "czk" ? "CZK" : c === "zł" || c === "pln" ? "PLN" : c === "ft" || c === "huf" ? "HUF" : c ? c.toUpperCase() : ""; };
+    const prices = [];
+    txt.split("\n").forEach((line, li, lines) => {
+      const kw = /gesamt|total|summe|endpreis|insgesamt|zu zahlen|amount paid|bezahlt|preis|price/i.test(line);
+      const scan = kw ? line + " " + (lines[li + 1] || "") : line;
+      let m; amt.lastIndex = 0;
+      while ((m = amt.exec(scan))) { if (!(m[1] || m[3])) continue; const v = toNum(m[2]); if (v > 0 && v < 100000) prices.push({ v, cur: curOf(m[1] || m[3]), kw: kw && /gesamt|total|summe|endpreis|insgesamt|zu zahlen|amount paid/i.test(line) }); }
+    });
+    const best = prices.filter((p) => p.kw).pop() || prices.sort((a, b) => b.v - a.v)[0];
+    if (best) { r.betrag = best.v; r.wae = best.cur === "KR" ? "NOK" : best.cur; }
+    // Buchungsnummer
+    const nr = txt.match(/(?:buchungsnummer|best(?:ä|ae)tigungsnummer|best(?:ä|ae)tigungscode|reservierungs(?:nummer|code)|booking (?:number|reference)|confirmation (?:number|code)|reservation code|pin)\s*[:#]?\s*\n?\s*([A-Z0-9][A-Z0-9.\-]{4,})/i);
+    if (nr) r.nr = nr[1].replace(/\.$/, "");
+    // Link
+    const url = txt.match(/https?:\/\/[^\s<>"]*(?:booking\.com|airbnb\.[a-z.]+|hostelworld|expedia)[^\s<>"]*/i);
+    if (url) r.link = url[0];
+    // Name der Unterkunft
+    const generic = /best(ä|ae)tigt|confirmed|^reservierung|^buchung|^booking|^your |^ihre |^deine |du fährst|you're going|danke|thank|vielen dank|gastgeber|^host|zahlung|payment|check-?(in|out)|^anreise|^abreise|^adresse|^address/i;
+    const nm = txt.match(/(?:confirmed|best(?:ä|ae)tigt)\s+(?:at|for|im|in der|in|bei)\s+(?:the\s+|dem\s+|der\s+)?([^\n.!]{3,70})/i)
+      || txt.match(/(?:buchung|reservierung|aufenthalt|booking|reservation|stay)\s+(?:im|in der|in|bei|at|für|for)\s+(?:dem\s+|der\s+)?([^\n.!]{3,70}?)(?:\s+(?:ist|is|wurde|was|bestätigt|confirmed)\b|[.!\n])/i)
+      || txt.match(/(?:unterkunft|property|hotel|accommodation)\s*:?\s*\n?\s*([^\n]{3,70})/i);
+    r.name = nm ? nm[1].trim().replace(/^["„“]|["“”]$/g, "") : (txt.split("\n").map((l) => l.trim()).find((l) => l.length > 3 && l.length < 60 && !/^(von|from|an|to|betreff|subject|datum|date|hallo|hi|hello|liebe|dear)\b/i.test(l) && !generic.test(l) && !/@|https?:|\d{1,2}[.:]\d{2}|booking\.com|airbnb/i.test(l)) || "");
+    // Adresse: Zeile mit Postleitzahl oder nach „Adresse“
+    const ad = txt.match(/(?:adresse|address|anschrift)\s*:?\s*\n?\s*([^\n]{6,120})/i);
+    if (ad) r.adresse = ad[1].trim();
+    else { const pl = txt.split("\n").map((l) => l.trim()).find((l) => /\b\d{4,5}\b/.test(l) && /[a-zäöü]{3}/i.test(l) && /,/.test(l) && l.length < 120 && !/\d{1,2}\.\d{1,2}\.|€|eur|preis|price|total/i.test(l)); if (pl) r.adresse = pl; }
+    return r;
+  }
+  function openBooking(t) {
+    ensurePlan(t);
+    const me = C.myId(t) || (t.personen[0] && t.personen[0].id);
+    const form = (r) => `
+      <div class="form-grid" style="margin-bottom:.6rem">
+        <label class="field c3">Unterkunft<input class="input" name="name" value="${esc(r.name || "")}" placeholder="Name der Unterkunft"></label>
+        <label class="field c3">Adresse<input class="input" name="adresse" value="${esc(r.adresse || "")}"></label>
+        <label class="field c2">Anreise<input class="input" name="von" value="${r.von ? C.toDE(r.von) : ""}" placeholder="TT.MM.JJJJ" inputmode="numeric"></label>
+        <label class="field c2">Abreise<input class="input" name="bis" value="${r.bis ? C.toDE(r.bis) : ""}" placeholder="TT.MM.JJJJ" inputmode="numeric"></label>
+        <label class="field c2">Check-in ab<input class="input" name="zeit" value="${esc(r.zeit || "")}" placeholder="15:00"></label>
+        <label class="field c2">Buchungsnummer<input class="input" name="nr" value="${esc(r.nr || "")}"></label>
+        <label class="field c2">Preis<input class="input" name="betrag" value="${r.betrag ? (Number.isInteger(r.betrag) ? String(r.betrag) : r.betrag.toFixed(2).replace(".", ",")) : ""}" inputmode="decimal"></label>
+        <label class="field c2">Währung<select class="input" name="wae">${WAEHRUNGEN.map((w) => `<option value="${w[0]}" ${w[0] === (r.wae || baseCode(t)) ? "selected" : ""}>${w[0]}</option>`).join("")}</select></label>
+        <label class="field c2">Bezahlt von<select class="input" name="pvon">${t.personen.map((p) => `<option value="${p.id}" ${p.id === me ? "selected" : ""}>${esc(pname(t, p))}</option>`).join("")}</select></label>
+        <label class="field c4">Link<input class="input" name="link" value="${esc(r.link || "")}" inputmode="url"></label>
+      </div>
+      <label class="check"><input type="checkbox" name="toPlan" checked> In der Planung als Unterkunft für jede Nacht eintragen</label>
+      <label class="check"><input type="checkbox" name="toKosten" ${r.betrag ? "checked" : ""}> Als Ausgabe bei den Kosten anlegen</label>
+      <label class="check"><input type="checkbox" name="beglichen"> Ausgabe gleich als beglichen markieren</label>`;
+    openModal({
+      title: "Buchung einfügen", wide: true,
+      body: `<p class="muted small" style="margin-top:0">Öffne die Bestätigungsmail (Booking, Airbnb, Hostelworld …), markiere alles (Strg+A), kopiere es und füge es hier ein. Die App liest die Angaben heraus – nichts wird an Booking oder Airbnb geschickt.</p>
+        <textarea class="input" id="bkRaw" rows="6" style="width:100%;box-sizing:border-box" placeholder="Text der Buchungsbestätigung hier einfügen …"></textarea>
+        <div id="bkForm" style="margin-top:.8rem"></div>`,
+      foot: `<button class="btn" data-close>Abbrechen</button><button class="btn primary" id="bkSave" disabled>Übernehmen</button>`,
+      onMount: (m) => {
+        const raw = $("#bkRaw", m), box = $("#bkForm", m), save = $("#bkSave", m);
+        const update = () => { if (!raw.value.trim()) { box.innerHTML = ""; save.disabled = true; return; } const r = parseBooking(raw.value, t); box.innerHTML = `<h4 class="form-sub">Erkannt${r.quelle ? " (" + r.quelle + ")" : ""} – bitte kurz prüfen</h4>` + form(r); save.disabled = false; };
+        let tm; raw.addEventListener("input", () => { clearTimeout(tm); tm = setTimeout(update, 250); });
+        raw.addEventListener("paste", () => setTimeout(update, 0));
+        setTimeout(() => raw.focus(), 50);
+        save.addEventListener("click", () => {
+          const g = (n) => { const el = box.querySelector(`[name=${n}]`); return el ? (el.type === "checkbox" ? el.checked : el.value.trim()) : ""; };
+          const name = g("name") || "Unterkunft", von = C.parseDE ? C.parseDE(g("von")) : g("von"), bis = C.parseDE ? C.parseDE(g("bis")) : g("bis");
+          let n = 0;
+          if (g("toPlan") && von && t.von) {
+            const end = bis && bis > von ? bis : von;
+            for (let i = 0; i < t.plan.length && i < t.tage; i++) {
+              const iso = C.addDays ? C.addDays(t.von, i) : null; if (!iso) break;
+              if (iso < von || (iso >= end && end !== von)) continue;
+              const r = t.plan[i];
+              const first = iso === von;
+              const lines = [`**${name}**`, first && g("zeit") ? `Check-in ab ${g("zeit")}` : "", g("adresse"), g("nr") ? `Buchungsnr. ${g("nr")}` : "", g("link")].filter(Boolean).join("\n");
+              if (r.unterkunft && plain(r.unterkunft).includes(name)) continue;
+              r.unterkunft = r.unterkunft ? r.unterkunft + "\n" + lines : lines; n++;
+            }
+          }
+          let k = false;
+          if (g("toKosten") && num(g("betrag"))) {
+            t.kosten ||= [];
+            if (!(g("nr") && t.kosten.some((x) => x.buchung === g("nr")))) {
+              const wae = g("wae");
+              if (wae !== baseCode(t)) { t.waehrungen = [...new Set([...(t.waehrungen || []), wae])]; }
+              t.kosten.push({ id: uid() + uid(), datum: von || C.todayISO(), betrag: Math.round(num(g("betrag")) * 100) / 100, grund: name, kat: "Unterkunft", von: g("pvon"), fuer: [],
+                ...(wae !== baseCode(t) ? { wae } : {}), ...(g("nr") ? { buchung: g("nr") } : {}), ...(g("beglichen") ? { beglichen: C.todayISO() } : {}) });
+              k = true;
+              if (wae !== baseCode(t) && !rateOf(t, wae) && navigator.onLine) setTimeout(() => fetchRates(t), 300);
+            }
+          }
+          closeModal(); C.commit();
+          toast([n ? `Unterkunft an ${n} ${n === 1 ? "Tag" : "Tagen"} eingetragen` : g("toPlan") ? "Keine passenden Tage im Plan gefunden" : "", k ? "Ausgabe angelegt" : ""].filter(Boolean).join(" · ") || "Nichts übernommen.");
+        });
+      }
+    });
+  }
+
   function renderKosten() {
     const t = trip(); const el = $("#view-kosten");
     const ids = t.personen.map((p) => p.id);
@@ -1375,7 +1516,7 @@
             </tr>`; }).join("") || `<tr><td colspan="8" class="muted" style="padding:1rem">Noch keine Ausgaben eingetragen.</td></tr>`}</tbody>
             <tfoot><tr><th>Summe</th><td class="n"><b>${money(t, total)}</b></td><td colspan="6" class="muted small">${curs.length > 1 ? "alles umgerechnet in " + base : ""}</td></tr></tfoot>
           </table>
-          <div class="row" style="padding:.7rem"><button class="btn primary sm" data-act="add">${ICON.plus} Ausgabe</button></div>
+          <div class="row" style="padding:.7rem;gap:.4rem"><button class="btn primary sm" data-act="add">${ICON.plus} Ausgabe</button><button class="btn sm" data-act="buchung">${ICON.plus} Buchung einfügen</button></div>
         </div>
         <aside class="stack">
           <div class="card card-pad">
@@ -1430,6 +1571,7 @@
     const t = trip(); t.kosten ||= [];
     const me = e.target.closest("[data-me]");
     if (me) { C.setMe(t, me.dataset.me); return C.commit(); }
+    if (e.target.closest("[data-act=buchung]")) return openBooking(t);
     const f = e.target.closest("[data-fuer]");
     if (f) {
       const [kid, pid] = f.dataset.fuer.split(":"); const k = t.kosten.find((x) => x.id === kid);
